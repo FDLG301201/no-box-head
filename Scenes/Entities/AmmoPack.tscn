@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Entities/AmmoPack.cs" id="1_ammo"]
+
+[node name="AmmoPack" type="Area2D"]
+script = ExtResource("1_ammo")
+collision_layer = 8
+collision_mask = 2

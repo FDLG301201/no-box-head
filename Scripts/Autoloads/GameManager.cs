@@ -35,15 +35,23 @@ public partial class GameManager : Node
     {
         IsGameRunning = true;
         CurrentWave = 0;
+        ScoreManager.Instance?.Reset();
         CallDeferred(MethodName.StartNextWave);
     }
 
     public void StartNextWave()
     {
         CurrentWave++;
-        EnemiesRemaining = CalculateEnemyCount(CurrentWave);
-        _waveSpawner?.SpawnWave(CurrentWave, EnemiesRemaining);
+        ScoreManager.Instance?.CheckWaveUnlocks(CurrentWave);
         EmitSignal(SignalName.WaveStarted, CurrentWave);
+        // WaveSpawner calls SetEnemiesForWave() before spawning.
+        _waveSpawner?.SpawnWave(CurrentWave);
+    }
+
+    // Called by WaveSpawner after computing the total count for the wave.
+    public void SetEnemiesForWave(int count)
+    {
+        EnemiesRemaining = count;
         EmitSignal(SignalName.EnemiesRemainingChanged, EnemiesRemaining);
     }
 
@@ -92,5 +100,4 @@ public partial class GameManager : Node
         return nearest;
     }
 
-    private static int CalculateEnemyCount(int wave) => 3 + wave * 2;
 }

@@ -4,46 +4,63 @@ using System.Collections.Generic;
 namespace NoBoxHead;
 
 /// <summary>
-/// Spawns enemies at wave start. Only runs on the host.
-/// Enemy nodes are created via Rpc so all peers have the scene node,
-/// but Enemy._isHost controls who drives the AI.
+/// Spawns zombies and (from wave 3) demons at the start of each wave.
+/// Notifies GameManager of the total enemy count before spawning.
+/// Only the host drives spawning; clients receive enemies via RPC.
 /// </summary>
 public partial class WaveSpawner : Node
 {
-    [Export] public NodePath EnemyContainerPath = "../../Enemies";
-    [Export] public NodePath SpawnPointsPath = "../../EnemySpawnPoints";
+    [Export] public NodePath EnemyContainerPath   = "../../Enemies";
+    [Export] public NodePath SpawnPointsPath      = "../../EnemySpawnPoints";
+    [Export] public NodePath BulletsContainerPath = "../../Bullets";
 
-    private Node? _enemyContainer;
+    private Node?              _enemyContainer;
+    private Node?              _bulletsContainer;
     private readonly List<Marker2D> _spawnPoints = new();
-    private PackedScene? _enemyScene;
-    private bool _isHost;
-    private int _spawnIndex;
+    private PackedScene?       _enemyScene;
+    private PackedScene?       _demonScene;
+    private bool               _isHost;
+    private int                _spawnIndex;
 
     public override void _Ready()
     {
-        _isHost = !Multiplayer.HasMultiplayerPeer() || Multiplayer.IsServer();
-        _enemyContainer = GetNode(EnemyContainerPath);
+        _isHost           = !Multiplayer.HasMultiplayerPeer() || Multiplayer.IsServer();
+        _enemyContainer   = GetNode(EnemyContainerPath);
+        _bulletsContainer = GetNode(BulletsContainerPath);
+
         var spawnRoot = GetNode(SpawnPointsPath);
         foreach (var child in spawnRoot.GetChildren())
             if (child is Marker2D marker)
                 _spawnPoints.Add(marker);
 
         _enemyScene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/Enemy.tscn");
+        _demonScene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/Demon.tscn");
+
         GameManager.Instance?.SetWaveSpawner(this);
     }
 
-    public void SpawnWave(int waveNumber, int count)
+    public void SpawnWave(int waveNumber)
     {
         if (!_isHost) return;
 
-        // Increase spawn count each wave; spread out spawns slightly.
-        for (int i = 0; i < count; i++)
+        int zombieCount = 3 + waveNumber * 2;
+        int demonCount  = waveNumber >= 3 ? (waveNumber - 2) : 0;
+        int total       = zombieCount + demonCount;
+
+        GameManager.Instance?.SetEnemiesForWave(total);
+
+        int delay = 0;
+        for (int i = 0; i < zombieCount; i++, delay++)
         {
-            float delay = i * 0.3f;
-            if (Multiplayer.HasMultiplayerPeer())
-                Rpc(MethodName.SpawnEnemyRpc, GetNextSpawnPosition(), delay);
-            else
-                SpawnEnemyRpc(GetNextSpawnPosition(), delay);
+            var pos = GetNextSpawnPosition();
+            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.SpawnEnemyRpc, pos, delay * 0.3f);
+            else SpawnEnemyRpc(pos, delay * 0.3f);
+        }
+        for (int i = 0; i < demonCount; i++, delay++)
+        {
+            var pos = GetNextSpawnPosition();
+            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.SpawnDemonRpc, pos, delay * 0.3f);
+            else SpawnDemonRpc(pos, delay * 0.3f);
         }
     }
 
@@ -51,19 +68,33 @@ public partial class WaveSpawner : Node
     private void SpawnEnemyRpc(Vector2 position, float delay)
     {
         if (_enemyScene == null) return;
-
         async void Deferred()
         {
             if (delay > 0f)
                 await ToSignal(GetTree().CreateTimer(delay), SceneTreeTimer.SignalName.Timeout);
-
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
-
             var enemy = _enemyScene.Instantiate<Enemy>();
             _enemyContainer.AddChild(enemy);
             enemy.GlobalPosition = position;
         }
+        Deferred();
+    }
 
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
+    private void SpawnDemonRpc(Vector2 position, float delay)
+    {
+        if (_demonScene == null) return;
+        async void Deferred()
+        {
+            if (delay > 0f)
+                await ToSignal(GetTree().CreateTimer(delay), SceneTreeTimer.SignalName.Timeout);
+            if (!IsInstanceValid(this) || _enemyContainer == null) return;
+            var demon = _demonScene.Instantiate<Demon>();
+            _enemyContainer.AddChild(demon);
+            demon.GlobalPosition = position;
+            if (_bulletsContainer != null)
+                demon.SetProjectileContainer(_bulletsContainer);
+        }
         Deferred();
     }
 
@@ -72,7 +103,6 @@ public partial class WaveSpawner : Node
         if (_spawnPoints.Count == 0) return Vector2.Zero;
         var point = _spawnPoints[_spawnIndex % _spawnPoints.Count];
         _spawnIndex++;
-        // Jitter to avoid stacking.
         return point.GlobalPosition + new Vector2(
             GD.Randf() * 40f - 20f,
             GD.Randf() * 40f - 20f);

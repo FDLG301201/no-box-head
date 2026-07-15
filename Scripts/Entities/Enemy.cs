@@ -3,28 +3,29 @@ using Godot;
 namespace NoBoxHead;
 
 /// <summary>
-/// Enemy character. Simulated on the host; state replicated to clients via RPC.
-/// Uses direct movement toward the nearest player (no Navigation needed for v1).
+/// Zombie enemy. Navigates around walls using NavigationAgent2D.
+/// Simulated on host; state replicated via RPC.
 /// </summary>
-public partial class Enemy : CharacterBody2D
+public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
 {
-    [Export] public float MoveSpeed = 70f;
-    [Export] public float MaxHealth = 30f;
-    [Export] public float AttackDamage = 10f;
+    [Export] public float MoveSpeed      = 30f;
+    [Export] public float MaxHealth      = 30f;
+    [Export] public float AttackDamage   = 10f;
     [Export] public float AttackCooldown = 1.0f;
-    [Export] public float AttackRange = 20f;
+    // Must be > sum of radii (player=12, enemy=11 = 23) so attack fires while touching.
+    [Export] public float AttackRange    = 30f;
 
     public bool IsAlive => _currentHealth > 0f;
 
-    private float _currentHealth;
-    private float _attackTimer;
-    private ColorRect? _visual;
-    private ColorRect? _healthFill;
-    private bool _isHost;
+    private float               _currentHealth;
+    private float               _attackTimer;
+    private Vector2             _knockback;
+    private ColorRect?          _visual;
+    private ColorRect?          _healthFill;
+    private bool                _isHost;
+    private NavigationAgent2D?  _navAgent;
 
-    private static readonly Color EnemyColor = new(0.15f, 0.7f, 0.25f); // zombie green
-
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    private static readonly Color EnemyColor = new(0.15f, 0.7f, 0.25f);
 
     public override void _Ready()
     {
@@ -32,6 +33,17 @@ public partial class Enemy : CharacterBody2D
         _isHost = !Multiplayer.HasMultiplayerPeer() || Multiplayer.IsServer();
         BuildPlaceholderVisual();
         AddToGroup("enemies");
+
+        if (_isHost)
+        {
+            _navAgent = new NavigationAgent2D
+            {
+                PathDesiredDistance    = 4f,
+                TargetDesiredDistance  = 16f,
+                AvoidanceEnabled       = false,
+            };
+            AddChild(_navAgent);
+        }
     }
 
     public override void _PhysicsProcess(double delta)
@@ -41,24 +53,58 @@ public partial class Enemy : CharacterBody2D
         var target = GameManager.Instance?.GetNearestPlayer(GlobalPosition);
         if (target == null || !target.IsAlive) return;
 
-        Vector2 dir = (target.GlobalPosition - GlobalPosition).Normalized();
+        Vector2 dir;
+        if (_navAgent != null)
+        {
+            _navAgent.TargetPosition = target.GlobalPosition;
+            if (!_navAgent.IsNavigationFinished())
+            {
+                var nextPos = _navAgent.GetNextPathPosition();
+                dir = nextPos.DistanceTo(GlobalPosition) > 1f
+                    ? (nextPos - GlobalPosition).Normalized()
+                    : (target.GlobalPosition - GlobalPosition).Normalized();
+            }
+            else
+            {
+                dir = (target.GlobalPosition - GlobalPosition).Normalized();
+            }
+        }
+        else
+        {
+            dir = (target.GlobalPosition - GlobalPosition).Normalized();
+        }
+
         Velocity = dir * MoveSpeed;
 
-        // Simple separation from other enemies.
+        // Separation from other enemies (works for both Enemy and Demon).
         foreach (var node in GetTree().GetNodesInGroup("enemies"))
         {
-            if (node is Enemy other && other != this && IsInstanceValid(other))
+            if (node is Node2D other && other != this && IsInstanceValid(other))
             {
-                float dist = GlobalPosition.DistanceTo(other.GlobalPosition);
-                if (dist < 24f && dist > 0f)
-                    Velocity += (GlobalPosition - other.GlobalPosition).Normalized() * (24f - dist);
+                float d = GlobalPosition.DistanceTo(other.GlobalPosition);
+                if (d < 24f && d > 0f)
+                    Velocity += (GlobalPosition - other.GlobalPosition).Normalized() * (24f - d) * 0.5f;
             }
         }
 
-        MoveAndSlide();
-        Rotation = dir.Angle() + Mathf.Pi / 2f;
+        // Apply and decay knockback impulse.
+        if (_knockback.LengthSquared() > 1f)
+        {
+            Velocity += _knockback;
+            _knockback *= 0.7f;
+        }
+        else
+        {
+            _knockback = Vector2.Zero;
+        }
 
-        // Attack logic.
+        MoveAndSlide();
+
+        // Face the player, not the nav waypoint.
+        var toTarget = (target.GlobalPosition - GlobalPosition);
+        if (toTarget.LengthSquared() > 0f)
+            Rotation = toTarget.Normalized().Angle() + Mathf.Pi / 2f;
+
         _attackTimer -= (float)delta;
         if (GlobalPosition.DistanceTo(target.GlobalPosition) <= AttackRange && _attackTimer <= 0f)
         {
@@ -66,25 +112,20 @@ public partial class Enemy : CharacterBody2D
             _attackTimer = AttackCooldown;
         }
 
-        // Sync to clients (unreliable, frequent).
         if (Multiplayer.HasMultiplayerPeer())
             Rpc(MethodName.SyncEnemyState, GlobalPosition, Rotation, _currentHealth);
     }
 
-    // ── Damage / Death ────────────────────────────────────────────────────────
+    public void ApplyKnockback(Vector2 impulse) => _knockback += impulse;
 
     public void TakeDamage(float amount)
     {
         if (!_isHost || !IsAlive) return;
-
         _currentHealth = Mathf.Max(0f, _currentHealth - amount);
         UpdateHealthBar();
-
         if (Multiplayer.HasMultiplayerPeer())
             Rpc(MethodName.ApplyDamageVisualRpc, _currentHealth);
-
         FlashDamage();
-
         if (_currentHealth <= 0f)
         {
             if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.DieRpc);
@@ -96,7 +137,7 @@ public partial class Enemy : CharacterBody2D
     {
         Modulate = new Color(1f, 0.3f, 0.3f);
         await ToSignal(GetTree().CreateTimer(0.12), SceneTreeTimer.SignalName.Timeout);
-        Modulate = Colors.White;
+        if (IsInstanceValid(this)) Modulate = Colors.White;
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
@@ -113,55 +154,60 @@ public partial class Enemy : CharacterBody2D
         _currentHealth = 0f;
         if (_visual != null) _visual.Color = new Color(0.3f, 0.3f, 0.3f);
         SetPhysicsProcess(false);
+        ScoreManager.Instance?.RegisterKill(10);
         GameManager.Instance?.OnEnemyKilled();
-
-        // Deferred so signals process before removal.
+        TryDropAmmo();
         CallDeferred(Node.MethodName.QueueFree);
     }
 
-    // ── Network sync ──────────────────────────────────────────────────────────
+    private void TryDropAmmo()
+    {
+        if (GD.Randf() >= 0.3f) return;
+        var scene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/AmmoPack.tscn");
+        if (scene == null) return;
+        var pack = scene.Instantiate<AmmoPack>();
+        pack.AmmoAmount       = 4;
+        pack.WeaponType       = ScoreManager.Instance?.GetRandomUnlockedAmmoType() ?? "Pistol";
+        pack.GlobalPosition   = GlobalPosition;
+        GetParent()?.AddChild(pack);
+    }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false,
          TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
     private void SyncEnemyState(Vector2 position, float rotation, float health)
     {
         GlobalPosition = position;
-        Rotation = rotation;
+        Rotation       = rotation;
         _currentHealth = health;
         UpdateHealthBar();
     }
-
-    // ── Visual ────────────────────────────────────────────────────────────────
 
     private void BuildPlaceholderVisual()
     {
         _visual = new ColorRect
         {
-            Color = EnemyColor,
-            Size = new Vector2(22, 22),
+            Color    = EnemyColor,
+            Size     = new Vector2(22, 22),
             Position = new Vector2(-11, -11)
         };
         AddChild(_visual);
 
-        var bg = new ColorRect
+        AddChild(new ColorRect
         {
-            Color = new Color(0.2f, 0.2f, 0.2f),
-            Size = new Vector2(26, 4),
+            Color    = new Color(0.2f, 0.2f, 0.2f),
+            Size     = new Vector2(26, 4),
             Position = new Vector2(-13, -18)
-        };
-        AddChild(bg);
+        });
 
         _healthFill = new ColorRect
         {
-            Color = new Color(0.9f, 0.2f, 0.2f),
-            Size = new Vector2(26, 4),
+            Color    = new Color(0.9f, 0.2f, 0.2f),
+            Size     = new Vector2(26, 4),
             Position = new Vector2(-13, -18)
         };
         AddChild(_healthFill);
 
-        var shape = new CollisionShape2D();
-        shape.Shape = new CircleShape2D { Radius = 11f };
-        AddChild(shape);
+        AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 11f } });
     }
 
     private void UpdateHealthBar()

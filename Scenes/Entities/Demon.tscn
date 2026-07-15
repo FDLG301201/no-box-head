@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Entities/Demon.cs" id="1_demon"]
+
+[node name="Demon" type="CharacterBody2D"]
+script = ExtResource("1_demon")
+collision_layer = 4
+collision_mask = 3

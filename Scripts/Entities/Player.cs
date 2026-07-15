@@ -1,80 +1,96 @@
 using Godot;
-using System.Linq;
+using System.Collections.Generic;
 
 namespace NoBoxHead;
 
-/// <summary>
-/// Player character. Each peer is the MultiplayerAuthority of their own Player node.
-/// Position/rotation are synced unreliably; damage/death via reliable RPCs.
-/// </summary>
 public partial class Player : CharacterBody2D
 {
     [Export] public float MoveSpeed = 160f;
     [Export] public float MaxHealth = 100f;
 
-    // Set by Arena when spawning.
     public int PlayerIndex { get; set; }
 
     [Signal] public delegate void HealthChangedEventHandler(float current, float max);
-
+    [Signal] public delegate void WeaponChangedEventHandler(string weaponName);
+    [Signal] public delegate void AmmoChangedEventHandler(int current, int reserve);
+    [Signal] public delegate void ReloadingEventHandler(bool isReloading);
     public float CurrentHealth { get; private set; }
-    public bool IsAlive => CurrentHealth > 0f;
+    public bool  IsAlive       => CurrentHealth > 0f;
+    public int   WeaponCount   => _weapons.Count;
 
-    // Visual colours per player slot.
     private static readonly Color[] PlayerColors =
     {
-        new(0.2f, 0.4f, 1f),   // blue
-        new(1f,   0.3f, 0.3f), // red
-        new(0.3f, 0.9f, 0.3f), // green
-        new(1f,   0.9f, 0.2f), // yellow
+        new(0.2f, 0.4f, 1f),
+        new(1f,   0.3f, 0.3f),
+        new(0.3f, 0.9f, 0.3f),
+        new(1f,   0.9f, 0.2f),
     };
 
-    private ColorRect? _visual;
-    private ColorRect? _healthFill;
-    private Weapon? _currentWeapon;
-    private VirtualJoystick? _moveJoystick;
-    private VirtualJoystick? _aimJoystick;
-    private bool _isLocalPlayer;
+    private ColorRect?        _visual;
+    private ColorRect?        _healthFill;
+    private readonly List<Weapon> _weapons = new();
+    private int               _currentWeaponIndex;
+    private int               _previousWeaponIndex;
+    private Weapon?           _currentWeapon;
+    private VirtualJoystick?  _moveJoystick;
+    private VirtualJoystick?  _aimJoystick;
+    private bool              _isLocalPlayer;
+    private Vector2           _lastAimDir = Vector2.Up;
 
-    // ── Godot callbacks ───────────────────────────────────────────────────────
+    private const float RotationSpeed  = 14f;
+    private const float AutoAimRange   = 700f;
 
     public override void _Ready()
     {
         CurrentHealth = MaxHealth;
-        // IsMultiplayerAuthority() calls GetUniqueId() internally, which errors without a peer.
-        // In single-player (no peer), all nodes default to authority 1 — treat the player as local.
         _isLocalPlayer = !Multiplayer.HasMultiplayerPeer() || IsMultiplayerAuthority();
-
         BuildPlaceholderVisual();
         AddToGroup("players");
-
         if (_isLocalPlayer)
             GameManager.Instance?.RegisterPlayer(this);
+    }
+
+    public override void _Input(InputEvent ev)
+    {
+        if (!_isLocalPlayer) return;
+        if (ev.IsActionPressed("switch_weapon")) SwitchToNextWeapon();
+        if (ev.IsActionPressed("knife"))         ToggleKnife();
     }
 
     public override void _PhysicsProcess(double delta)
     {
         if (!_isLocalPlayer || !IsAlive) return;
 
-        Vector2 moveDir = GetMoveInput();
+        var moveDir = GetMoveInput();
         Velocity = moveDir * MoveSpeed;
         MoveAndSlide();
-
         UpdateAnimation(moveDir);
 
         if (_currentWeapon != null)
         {
-            Vector2 aimDir = GetAimDirection();
+            var aimDir = GetAimDirection(moveDir);
             if (aimDir.LengthSquared() > 0.01f)
             {
-                Rotation = aimDir.Angle() + Mathf.Pi / 2f;
+                float targetAngle = aimDir.Angle() + Mathf.Pi / 2f;
+                Rotation = Mathf.LerpAngle(Rotation, targetAngle, (float)delta * RotationSpeed);
 
                 if (ShouldShoot())
-                    _currentWeapon.TryShoot(GlobalPosition, aimDir);
+                {
+                    // Auto-switch to knife when ranged weapon is empty.
+                    if (!(_currentWeapon is Knife) &&
+                        _currentWeapon.CurrentAmmo <= 0 &&
+                        _currentWeapon.ReserveAmmo <= 0)
+                    {
+                        ToggleKnife();
+                    }
+                    else
+                    {
+                        _currentWeapon.TryShoot(GlobalPosition, aimDir);
+                    }
+                }
             }
         }
 
-        // Unreliable position sync.
         if (Multiplayer.HasMultiplayerPeer())
             Rpc(MethodName.SyncState, GlobalPosition, Rotation);
     }
@@ -83,29 +99,47 @@ public partial class Player : CharacterBody2D
 
     private Vector2 GetMoveInput()
     {
-        if (_moveJoystick?.IsActive == true)
-            return _moveJoystick.InputVector;
-
+        if (_moveJoystick?.IsActive == true) return _moveJoystick.InputVector;
         return Input.GetVector("move_left", "move_right", "move_up", "move_down");
     }
 
-    private Vector2 GetAimDirection()
+    private Vector2 GetAimDirection(Vector2 moveInput)
     {
-        if (_aimJoystick?.IsActive == true)
-            return _aimJoystick.InputVector;
+        if (_aimJoystick?.IsActive == true) return _aimJoystick.InputVector;
 
-        // Auto-aim: nearest enemy.
-        var nearest = GetTree().GetNodesInGroup("enemies")
-            .OfType<Enemy>()
-            .Where(e => IsInstanceValid(e) && e.IsAlive)
-            .OrderBy(e => GlobalPosition.DistanceTo(e.GlobalPosition))
-            .FirstOrDefault();
+        var mode = SettingsManager.Instance?.AimMode ?? AimMode.Movement;
+        Vector2 aim;
 
-        if (nearest != null)
-            return (nearest.GlobalPosition - GlobalPosition).Normalized();
+        switch (mode)
+        {
+            case AimMode.Mouse:
+                var toMouse = GetGlobalMousePosition() - GlobalPosition;
+                aim = toMouse.LengthSquared() > 1f ? toMouse.Normalized() : _lastAimDir;
+                break;
 
-        // Fallback: face movement direction.
-        return GetMoveInput();
+            case AimMode.AutoAim:
+                Node2D? nearest = null;
+                float   minDist = AutoAimRange;
+                foreach (var node in GetTree().GetNodesInGroup("enemies"))
+                {
+                    if (node is IDamageable d && d.IsAlive && node is Node2D n2d)
+                    {
+                        float dist = GlobalPosition.DistanceTo(n2d.GlobalPosition);
+                        if (dist < minDist) { minDist = dist; nearest = n2d; }
+                    }
+                }
+                aim = nearest != null
+                    ? (nearest.GlobalPosition - GlobalPosition).Normalized()
+                    : _lastAimDir;
+                break;
+
+            default: // AimMode.Movement
+                aim = moveInput.LengthSquared() > 0.01f ? moveInput.Normalized() : _lastAimDir;
+                break;
+        }
+
+        _lastAimDir = aim;
+        return aim;
     }
 
     private bool ShouldShoot()
@@ -114,52 +148,157 @@ public partial class Player : CharacterBody2D
         return Input.IsActionPressed("shoot");
     }
 
+    // ── Weapon management ─────────────────────────────────────────────────────
+
+    public void AddWeapon(Weapon weapon)
+    {
+        weapon.Name = $"Weapon{_weapons.Count}";
+        _weapons.Add(weapon);
+        AddChild(weapon);
+
+        weapon.AmmoChanged += (cur, res) =>
+        {
+            if (weapon == _currentWeapon) EmitSignal(SignalName.AmmoChanged, cur, res);
+        };
+        weapon.Reloading += rel =>
+        {
+            if (weapon == _currentWeapon) EmitSignal(SignalName.Reloading, rel);
+        };
+
+        if (weapon is Knife knife)
+            knife.OnAttack = ShowKnifeSwing;
+
+        if (_weapons.Count == 1)
+        {
+            _currentWeaponIndex = 0;
+            _currentWeapon      = weapon;
+        }
+    }
+
+    public void SwitchToNextWeapon()
+    {
+        if (_weapons.Count <= 1) return;
+        _previousWeaponIndex = _currentWeaponIndex;
+        _currentWeaponIndex  = (_currentWeaponIndex + 1) % _weapons.Count;
+        ActivateWeapon(_currentWeaponIndex);
+    }
+
+    private void ToggleKnife()
+    {
+        int knifeIdx = _weapons.FindIndex(w => w is Knife);
+        if (knifeIdx < 0) return;
+
+        if (_currentWeaponIndex == knifeIdx)
+        {
+            // Already holding knife → switch back.
+            ActivateWeapon(_previousWeaponIndex);
+        }
+        else
+        {
+            _previousWeaponIndex = _currentWeaponIndex;
+            ActivateWeapon(knifeIdx);
+        }
+    }
+
+    private void ActivateWeapon(int index)
+    {
+        _currentWeaponIndex = index;
+        _currentWeapon      = _weapons[_currentWeaponIndex];
+        EmitSignal(SignalName.WeaponChanged, _currentWeapon.WeaponName);
+        EmitSignal(SignalName.AmmoChanged,   _currentWeapon.CurrentAmmo, _currentWeapon.ReserveAmmo);
+        EmitSignal(SignalName.Reloading,     _currentWeapon.IsReloading);
+    }
+
+    // ── Ammo pickup ───────────────────────────────────────────────────────────
+
+    public void AddAmmo(int amount, string weaponType = "")
+    {
+        Weapon? target;
+        if (weaponType.Length > 0)
+        {
+            // Route to the weapon whose name matches (e.g. "Pistol", "Shotgun", "Machine Gun").
+            target = _weapons.Find(w => !(w is Knife) && w.WeaponName == weaponType);
+        }
+        else if (_currentWeapon is Knife)
+        {
+            // Knife active: fall back to first available ranged weapon.
+            target = _weapons.Find(w => !(w is Knife));
+        }
+        else
+        {
+            target = _currentWeapon;
+        }
+        target?.AddReserveAmmo(amount);
+    }
+
+    // ── Knife swing animation ─────────────────────────────────────────────────
+
+    private void ShowKnifeSwing(Vector2 dir)
+    {
+        if (!IsInstanceValid(this) || GetParent() == null) return;
+
+        const float halfSpread = 0.44f; // ~25° in radians
+        const float range      = 54f;
+        const int   segments   = 6;
+
+        float baseAngle = dir.Angle();
+        var   pts       = new Vector2[segments + 2];
+        pts[0] = Vector2.Zero;
+        for (int i = 0; i <= segments; i++)
+        {
+            float t     = (float)i / segments;
+            float angle = baseAngle - halfSpread + t * (halfSpread * 2f);
+            pts[i + 1]  = Vector2.FromAngle(angle) * range;
+        }
+
+        var fan = new Polygon2D
+        {
+            Polygon        = pts,
+            Color          = new Color(0.85f, 0.95f, 1f, 0.72f),
+            GlobalPosition = GlobalPosition,
+            ZIndex         = 5,
+        };
+        GetParent().AddChild(fan);
+
+        var tween = fan.CreateTween();
+        tween.TweenProperty(fan, "modulate:a", 0f, 0.15f);
+        tween.TweenCallback(Godot.Callable.From(fan.QueueFree));
+    }
+
     // ── Visual helpers ────────────────────────────────────────────────────────
 
     private void BuildPlaceholderVisual()
     {
-        // Body rectangle.
         _visual = new ColorRect
         {
-            Color = PlayerColors[PlayerIndex % PlayerColors.Length],
-            Size = new Vector2(24, 24),
+            Color    = PlayerColors[PlayerIndex % PlayerColors.Length],
+            Size     = new Vector2(24, 24),
             Position = new Vector2(-12, -12)
         };
         AddChild(_visual);
 
-        // Health bar background.
-        var hbBg = new ColorRect
+        AddChild(new ColorRect
         {
-            Color = new Color(0.2f, 0.2f, 0.2f),
-            Size = new Vector2(28, 4),
+            Color    = new Color(0.2f, 0.2f, 0.2f),
+            Size     = new Vector2(28, 4),
             Position = new Vector2(-14, -20)
-        };
-        AddChild(hbBg);
+        });
 
-        // Health bar fill.
         _healthFill = new ColorRect
         {
-            Color = new Color(0.2f, 0.9f, 0.2f),
-            Size = new Vector2(28, 4),
+            Color    = new Color(0.2f, 0.9f, 0.2f),
+            Size     = new Vector2(28, 4),
             Position = new Vector2(-14, -20)
         };
         AddChild(_healthFill);
 
-        // Collision.
-        var shape = new CollisionShape2D();
-        var circle = new CircleShape2D { Radius = 12f };
-        shape.Shape = circle;
-        AddChild(shape);
+        AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 12f } });
     }
 
     private void UpdateAnimation(Vector2 moveDir)
     {
-        // Placeholder: tint to show movement.
         if (_visual == null) return;
-        if (moveDir.LengthSquared() > 0.01f)
-            _visual.Color = _visual.Color with { A = 0.85f };
-        else
-            _visual.Color = _visual.Color with { A = 1f };
+        _visual.Color = _visual.Color with { A = moveDir.LengthSquared() > 0.01f ? 0.85f : 1f };
     }
 
     private void UpdateHealthBar()
@@ -172,14 +311,11 @@ public partial class Player : CharacterBody2D
 
     public void TakeDamage(float amount)
     {
-        if (!_isLocalPlayer) return; // only authority applies damage
-        if (!IsAlive) return;
-
+        if (!_isLocalPlayer || !IsAlive) return;
         CurrentHealth = Mathf.Max(0f, CurrentHealth - amount);
         UpdateHealthBar();
         FlashDamage();
         EmitSignal(SignalName.HealthChanged, CurrentHealth, MaxHealth);
-
         if (CurrentHealth <= 0f)
         {
             if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.DieRpc);
@@ -191,7 +327,7 @@ public partial class Player : CharacterBody2D
     {
         Modulate = new Color(1f, 0.3f, 0.3f);
         await ToSignal(GetTree().CreateTimer(0.12), SceneTreeTimer.SignalName.Timeout);
-        Modulate = Colors.White;
+        if (IsInstanceValid(this)) Modulate = Colors.White;
     }
 
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = true)]
@@ -210,7 +346,7 @@ public partial class Player : CharacterBody2D
     private void SyncState(Vector2 position, float rotation)
     {
         GlobalPosition = position;
-        Rotation = rotation;
+        Rotation       = rotation;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -218,12 +354,6 @@ public partial class Player : CharacterBody2D
     public void SetJoysticks(VirtualJoystick? move, VirtualJoystick? aim)
     {
         _moveJoystick = move;
-        _aimJoystick = aim;
-    }
-
-    public void SetWeapon(Weapon weapon)
-    {
-        _currentWeapon = weapon;
-        AddChild(weapon);
+        _aimJoystick  = aim;
     }
 }
