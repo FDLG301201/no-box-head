@@ -65,14 +65,15 @@ public partial class Arena : Node2D
         if (!Multiplayer.HasMultiplayerPeer() || Multiplayer.IsServer())
         {
             SpawnPlayers();
-            GameManager.Instance?.StartGame();
+            GameManager.Instance?.StartGame(); // must come after players are spawned
         }
         else
         {
             NetworkManager.Instance.PlayerConnected += _ => { /* handled via RPC */ };
         }
 
-        GameManager.Instance!.GameOver += OnGameOver;
+        GameManager.Instance!.GameOver    += OnGameOver;
+        GameManager.Instance!.WaveStarted += OnWaveStartedRevive;
         NetworkManager.Instance.PlayerDisconnected += OnPeerDisconnected;
     }
 
@@ -145,7 +146,9 @@ public partial class Arena : Node2D
             });
         }
 
+#pragma warning disable CS0618
         navPoly.MakePolygonsFromOutlines();
+#pragma warning restore CS0618
         AddChild(new NavigationRegion2D { NavigationPolygon = navPoly });
     }
 
@@ -254,6 +257,8 @@ public partial class Arena : Node2D
         else
         {
             SpawnPlayerRpc(0, 1);
+            if (SettingsManager.Instance?.GameMode == GameMode.LocalCoop)
+                SpawnPlayerRpc(1, 1);
         }
     }
 
@@ -276,27 +281,44 @@ public partial class Arena : Node2D
         var knife = new Knife { BulletContainer = _bullets };
         player.AddWeapon(knife);
 
-        bool isLocalPlayer = (!Multiplayer.HasMultiplayerPeer() && playerIndex == 0) ||
+        // In local co-op, both players are on the same machine (no multiplayer peer).
+        bool isLocalPlayer = !Multiplayer.HasMultiplayerPeer() ||
                              (Multiplayer.HasMultiplayerPeer() && peerId == Multiplayer.GetUniqueId());
+
         if (isLocalPlayer)
         {
-            _localPlayer = player;
+            bool isCoopP2 = SettingsManager.Instance?.GameMode == GameMode.LocalCoop && playerIndex == 1;
 
-            // All weapons proxy their signals through Player — wire once here.
-            player.AmmoChanged   += (cur, res) => _hud?.UpdateAmmo(cur, res);
-            player.Reloading     += rel         => _hud?.SetReloading(rel);
-            player.HealthChanged += (cur, max)  => _hud?.UpdateHealth(cur, max);
-            player.WeaponChanged += name         => _hud?.UpdateWeapon(name);
-
-            if (_hud != null)
+            if (!isCoopP2)
             {
-                _hud.SwitchWeaponCallback = player.SwitchToNextWeapon;
-                _hud.BindToPlayer(player, pistol);
+                _localPlayer = player;
+
+                player.AmmoChanged   += (cur, res) => _hud?.UpdateAmmo(cur, res);
+                player.Reloading     += rel         => _hud?.SetReloading(rel);
+                player.HealthChanged += (cur, max)  => _hud?.UpdateHealth(cur, max);
+                player.WeaponChanged += name         => _hud?.UpdateWeapon(name);
+
+                if (_hud != null)
+                {
+                    _hud.SwitchWeaponCallback = player.SwitchToNextWeapon;
+                    _hud.BindToPlayer(player, pistol);
+                }
+            }
+            else
+            {
+                // P2 signals route to the right-side HUD panel.
+                player.AmmoChanged   += (cur, res) => _hud?.UpdateAmmoP2(cur, res);
+                player.Reloading     += rel         => _hud?.SetReloadingP2(rel);
+                player.HealthChanged += (cur, max)  => _hud?.UpdateHealthP2(cur, max);
+                player.WeaponChanged += name         => _hud?.UpdateWeaponP2(name);
+
+                _hud?.BindToPlayerP2(player, pistol);
             }
 
-            // When score unlocks a weapon, add it to the local player.
+            // Each local player gets their own weapon instances when weapons unlock.
             if (ScoreManager.Instance != null)
             {
+                var capturedPlayer = player;
                 ScoreManager.Instance.WeaponUnlocked += weaponName =>
                 {
                     Weapon? w = weaponName switch
@@ -305,9 +327,9 @@ public partial class Arena : Node2D
                         "MachineGun" => (Weapon)new MachineGun(),
                         _            => null,
                     };
-                    if (w == null || _localPlayer == null) return;
+                    if (w == null || !IsInstanceValid(capturedPlayer)) return;
                     w.BulletContainer = _bullets;
-                    _localPlayer.AddWeapon(w);
+                    capturedPlayer.AddWeapon(w);
                 };
             }
 
@@ -335,6 +357,15 @@ public partial class Arena : Node2D
         _cameraManager?.RemovePlayer(player);
         _spawnedPlayers.Remove(player);
         player.QueueFree();
+    }
+
+    private void OnWaveStartedRevive(int _)
+    {
+        foreach (var player in _spawnedPlayers)
+        {
+            if (!IsInstanceValid(player) || player.IsAlive) continue;
+            player.Revive(PlayerSpawnPositions[player.PlayerIndex % PlayerSpawnPositions.Length]);
+        }
     }
 
     private void OnGameOver()

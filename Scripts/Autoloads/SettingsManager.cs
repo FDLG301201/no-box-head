@@ -4,6 +4,7 @@ namespace NoBoxHead;
 
 public enum CameraMode { Shared, SplitScreen }
 public enum AimMode    { Movement, Mouse, AutoAim }
+public enum GameMode   { SinglePlayer, LocalCoop }
 
 public partial class SettingsManager : Node
 {
@@ -11,6 +12,8 @@ public partial class SettingsManager : Node
 
     public CameraMode CameraMode { get; set; } = CameraMode.Shared;
     public AimMode    AimMode    { get; set; } = AimMode.Movement;
+    // Session-only, not persisted to disk.
+    public GameMode   GameMode   { get; set; } = GameMode.SinglePlayer;
 
     private const string SettingsPath = "user://settings.cfg";
     private readonly ConfigFile _config = new();

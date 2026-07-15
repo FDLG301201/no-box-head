@@ -38,7 +38,10 @@ public partial class CameraManager : Node
         _players.Clear();
         _players.AddRange(players);
         _screenRoot = screenRoot;
-        _mode = SettingsManager.Instance?.CameraMode ?? CameraMode.Shared;
+        // Local co-op always needs split-screen regardless of saved camera setting.
+        _mode = (SettingsManager.Instance?.GameMode == GameMode.LocalCoop)
+            ? CameraMode.SplitScreen
+            : (SettingsManager.Instance?.CameraMode ?? CameraMode.Shared);
 
         if (_mode == CameraMode.Shared)
             SetupShared();

@@ -42,7 +42,6 @@ public partial class GameManager : Node
     public void StartNextWave()
     {
         CurrentWave++;
-        ScoreManager.Instance?.CheckWaveUnlocks(CurrentWave);
         EmitSignal(SignalName.WaveStarted, CurrentWave);
         // WaveSpawner calls SetEnemiesForWave() before spawning.
         _waveSpawner?.SpawnWave(CurrentWave);

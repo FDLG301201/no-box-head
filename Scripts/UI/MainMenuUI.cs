@@ -26,10 +26,11 @@ public partial class MainMenuUI : Control
 
 		AddTitle(vbox, "NO BOX HEAD");
 
-		AddButton(vbox, "Solo Play", OnSoloPressed);
-		AddButton(vbox, "Host Game", OnHostPressed);
-		AddButton(vbox, "Join Game", OnJoinPressed);
-		AddButton(vbox, "Settings", OnSettingsPressed);
+		AddButton(vbox, "Solo Play",   OnSoloPressed);
+		AddButton(vbox, "Local Co-op", OnLocalCoopPressed);
+		AddButton(vbox, "Host Game",   OnHostPressed);
+		AddButton(vbox, "Join Game",   OnJoinPressed);
+		AddButton(vbox, "Settings",    OnSettingsPressed);
 	}
 
 	private static void AddTitle(Control parent, string text)
@@ -59,8 +60,24 @@ public partial class MainMenuUI : Control
 		parent.AddChild(btn);
 	}
 
-	private void OnSoloPressed() =>
+	private void OnSoloPressed()
+	{
+		if (SettingsManager.Instance != null)
+			SettingsManager.Instance.GameMode = GameMode.SinglePlayer;
 		GetTree().ChangeSceneToFile("res://Scenes/Arena.tscn");
+	}
+
+	private void OnLocalCoopPressed()
+	{
+		if (SettingsManager.Instance != null)
+		{
+			SettingsManager.Instance.GameMode = GameMode.LocalCoop;
+			// Mouse aim doesn't work with two players; fall back to movement.
+			if (SettingsManager.Instance.AimMode == AimMode.Mouse)
+				SettingsManager.Instance.AimMode = AimMode.Movement;
+		}
+		GetTree().ChangeSceneToFile("res://Scenes/Arena.tscn");
+	}
 
 	private void OnHostPressed()
 	{

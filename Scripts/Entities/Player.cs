@@ -36,6 +36,8 @@ public partial class Player : CharacterBody2D
     private VirtualJoystick?  _aimJoystick;
     private bool              _isLocalPlayer;
     private Vector2           _lastAimDir = Vector2.Up;
+    // Tracks KP_0 held state for P2 (physical key check, Num Lock independent).
+    private bool              _p2ShootHeld;
 
     private const float RotationSpeed  = 14f;
     private const float AutoAimRange   = 700f;
@@ -50,11 +52,27 @@ public partial class Player : CharacterBody2D
             GameManager.Instance?.RegisterPlayer(this);
     }
 
+    // Returns the action name scoped to this player's index.
+    private string A(string action) => PlayerIndex == 0 ? action : action + "_p2";
+
     public override void _Input(InputEvent ev)
     {
         if (!_isLocalPlayer) return;
-        if (ev.IsActionPressed("switch_weapon")) SwitchToNextWeapon();
-        if (ev.IsActionPressed("knife"))         ToggleKnife();
+        if (PlayerIndex == 0)
+        {
+            if (ev.IsActionPressed("switch_weapon")) SwitchToNextWeapon();
+            if (ev.IsActionPressed("knife"))         ToggleKnife();
+        }
+        else if (ev is InputEventKey { Echo: false } key)
+        {
+            // P2 uses direct physical key checks so numpad works regardless of Num Lock / action mapping.
+            switch (key.PhysicalKeycode)
+            {
+                case Key.Kp0: _p2ShootHeld = key.Pressed;            break;
+                case Key.Kp1: if (key.Pressed) SwitchToNextWeapon(); break;
+                case Key.Kp2: if (key.Pressed) ToggleKnife();        break;
+            }
+        }
     }
 
     public override void _PhysicsProcess(double delta)
@@ -100,7 +118,7 @@ public partial class Player : CharacterBody2D
     private Vector2 GetMoveInput()
     {
         if (_moveJoystick?.IsActive == true) return _moveJoystick.InputVector;
-        return Input.GetVector("move_left", "move_right", "move_up", "move_down");
+        return Input.GetVector(A("move_left"), A("move_right"), A("move_up"), A("move_down"));
     }
 
     private Vector2 GetAimDirection(Vector2 moveInput)
@@ -108,6 +126,9 @@ public partial class Player : CharacterBody2D
         if (_aimJoystick?.IsActive == true) return _aimJoystick.InputVector;
 
         var mode = SettingsManager.Instance?.AimMode ?? AimMode.Movement;
+        // Mouse aim requires a single cursor — not usable in local co-op.
+        if (SettingsManager.Instance?.GameMode == GameMode.LocalCoop && mode == AimMode.Mouse)
+            mode = AimMode.Movement;
         Vector2 aim;
 
         switch (mode)
@@ -145,7 +166,8 @@ public partial class Player : CharacterBody2D
     private bool ShouldShoot()
     {
         if (_aimJoystick?.IsActive == true) return true;
-        return Input.IsActionPressed("shoot");
+        if (PlayerIndex == 0) return Input.IsActionPressed("shoot");
+        return _p2ShootHeld;
     }
 
     // ── Weapon management ─────────────────────────────────────────────────────
@@ -277,6 +299,19 @@ public partial class Player : CharacterBody2D
         };
         AddChild(_visual);
 
+        // Player identity label — always shown in co-op, useful for distinguishing players.
+        if (SettingsManager.Instance?.GameMode == GameMode.LocalCoop)
+        {
+            var nameLabel = new Label
+            {
+                Text     = $"P{PlayerIndex + 1}",
+                Position = new Vector2(-8, -34),
+            };
+            nameLabel.AddThemeFontSizeOverride("font_size", 12);
+            nameLabel.AddThemeColorOverride("font_color", PlayerColors[PlayerIndex % PlayerColors.Length]);
+            AddChild(nameLabel);
+        }
+
         AddChild(new ColorRect
         {
             Color    = new Color(0.2f, 0.2f, 0.2f),
@@ -305,6 +340,21 @@ public partial class Player : CharacterBody2D
     {
         if (_healthFill == null) return;
         _healthFill.Size = new Vector2(28f * (CurrentHealth / MaxHealth), 4f);
+    }
+
+    // ── Revive ────────────────────────────────────────────────────────────────
+
+    public void Revive(Vector2 spawnPosition)
+    {
+        if (IsAlive) return;
+        CurrentHealth  = MaxHealth;
+        GlobalPosition = spawnPosition;
+        Modulate       = Colors.White;
+        if (_visual != null) _visual.Color = PlayerColors[PlayerIndex % PlayerColors.Length];
+        UpdateHealthBar();
+        SetPhysicsProcess(true);
+        EmitSignal(SignalName.HealthChanged, CurrentHealth, MaxHealth);
+        if (_isLocalPlayer) GameManager.Instance?.RegisterPlayer(this);
     }
 
     // ── Damage / Death ────────────────────────────────────────────────────────

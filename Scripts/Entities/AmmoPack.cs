@@ -12,6 +12,8 @@ public partial class AmmoPack : Area2D
     [Export] public int    AmmoAmount = 12;
     [Export] public string WeaponType = "Pistol";
 
+    private bool _pickedUp;
+
     private static readonly Dictionary<string, Color> PackColors = new()
     {
         { "Pistol",      new Color(1f,    0.85f, 0.1f) },
@@ -46,7 +48,8 @@ public partial class AmmoPack : Area2D
 
     private void OnBodyEntered(Node2D body)
     {
-        if (body is not Player player) return;
+        if (_pickedUp || body is not Player player) return;
+        _pickedUp = true;
         player.AddAmmo(AmmoAmount, WeaponType);
         QueueFree();
     }

@@ -16,11 +16,11 @@ public partial class ScoreManager : Node
     private const float StreakWindow = 3f;
     private const float MaxMultiplier = 4f;
 
-    // wave number → weapon id (must match Arena.cs WeaponUnlocked switch)
-    private static readonly (int Wave, string WeaponId)[] WaveUnlocks =
+    // score threshold → weapon id (must match Arena.cs WeaponUnlocked switch)
+    private static readonly (int Threshold, string WeaponId)[] Unlocks =
     {
-        (2, "Shotgun"),
-        (3, "MachineGun"),
+        (500,  "Shotgun"),
+        (1500, "MachineGun"),
     };
     // Maps internal id → WeaponName (for ammo pack typing)
     private static readonly System.Collections.Generic.Dictionary<string, string> WeaponIdToName = new()
@@ -56,13 +56,13 @@ public partial class ScoreManager : Node
         Multiplier = Mathf.Min(1f + (_streakCount - 1) * 0.5f, MaxMultiplier);
         Score += Mathf.RoundToInt(basePoints * Multiplier);
         EmitSignal(SignalName.ScoreChanged, Score, Multiplier);
+        CheckUnlocks();
     }
 
-    // Called by GameManager.StartNextWave() — unlocks weapons tied to specific waves.
-    public void CheckWaveUnlocks(int wave)
+    private void CheckUnlocks()
     {
-        foreach (var (waveThreshold, weaponId) in WaveUnlocks)
-            if (wave >= waveThreshold && _unlockedWeapons.Add(weaponId))
+        foreach (var (threshold, weaponId) in Unlocks)
+            if (Score >= threshold && _unlockedWeapons.Add(weaponId))
                 EmitSignal(SignalName.WeaponUnlocked, weaponId);
     }
 
