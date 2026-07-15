@@ -28,6 +28,12 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
     private Node?               _projectileContainer;
     private NavigationAgent2D?  _navAgent;
 
+    private Vector2             _prevPosition;
+    private float               _stuckTimer;
+    private float               _stuckSide = 1f;
+    private const float         StuckWindow   = 0.25f;
+    private const float         StuckMinRatio = 0.2f;
+
     private static readonly Color DemonColor = new(0.85f, 0.1f, 0.1f);
 
     public void SetProjectileContainer(Node container) => _projectileContainer = container;
@@ -43,9 +49,10 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
         {
             _navAgent = new NavigationAgent2D
             {
-                PathDesiredDistance   = 4f,
+                PathDesiredDistance   = 12f,
                 TargetDesiredDistance = 20f,
                 AvoidanceEnabled      = false,
+                Radius                = 12f,
             };
             AddChild(_navAgent);
         }
@@ -105,6 +112,29 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
         }
 
         MoveAndSlide();
+
+        // ── Stuck recovery ────────────────────────────────────────────────────
+        float movedDist    = GlobalPosition.DistanceTo(_prevPosition);
+        float expectedDist = MoveSpeed * (float)delta;
+        if (expectedDist > 0f && movedDist < expectedDist * StuckMinRatio)
+        {
+            _stuckTimer += (float)delta;
+            if (_stuckTimer >= StuckWindow)
+            {
+                Vector2 navDir2 = dir;
+                if (_navAgent != null && !_navAgent.IsNavigationFinished())
+                    navDir2 = (_navAgent.GetNextPathPosition() - GlobalPosition).Normalized();
+                Velocity = navDir2.Rotated(_stuckSide * Mathf.Pi * 0.5f) * MoveSpeed;
+                MoveAndSlide();
+                _stuckTimer = 0f;
+                _stuckSide  = -_stuckSide;
+            }
+        }
+        else
+        {
+            _stuckTimer = 0f;
+        }
+        _prevPosition = GlobalPosition;
 
         Rotation = dir.Angle() + Mathf.Pi / 2f;
         _attackTimer -= (float)delta;

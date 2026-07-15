@@ -25,6 +25,13 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
     private bool                _isHost;
     private NavigationAgent2D?  _navAgent;
 
+    // Stuck-recovery state.
+    private Vector2             _prevPosition;
+    private float               _stuckTimer;
+    private float               _stuckSide = 1f;
+    private const float         StuckWindow = 0.25f; // seconds of minimal movement before nudging
+    private const float         StuckMinRatio = 0.2f;  // fraction of expected displacement
+
     private static readonly Color EnemyColor = new(0.15f, 0.7f, 0.25f);
 
     public override void _Ready()
@@ -38,9 +45,10 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
         {
             _navAgent = new NavigationAgent2D
             {
-                PathDesiredDistance    = 4f,
-                TargetDesiredDistance  = 16f,
-                AvoidanceEnabled       = false,
+                PathDesiredDistance   = 6f,   // follow waypoints tightly for closer cornering
+                TargetDesiredDistance = 20f,
+                AvoidanceEnabled      = false,
+                Radius                = 12f,
             };
             AddChild(_navAgent);
         }
@@ -53,6 +61,7 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
         var target = GameManager.Instance?.GetNearestPlayer(GlobalPosition);
         if (target == null || !target.IsAlive) return;
 
+        // ── Navigation direction ──────────────────────────────────────────────
         Vector2 dir;
         if (_navAgent != null)
         {
@@ -60,7 +69,7 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
             if (!_navAgent.IsNavigationFinished())
             {
                 var nextPos = _navAgent.GetNextPathPosition();
-                dir = nextPos.DistanceTo(GlobalPosition) > 1f
+                dir = (nextPos - GlobalPosition).LengthSquared() > 4f
                     ? (nextPos - GlobalPosition).Normalized()
                     : (target.GlobalPosition - GlobalPosition).Normalized();
             }
@@ -76,7 +85,7 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
 
         Velocity = dir * MoveSpeed;
 
-        // Separation from other enemies (works for both Enemy and Demon).
+        // Separation from other enemies.
         foreach (var node in GetTree().GetNodesInGroup("enemies"))
         {
             if (node is Node2D other && other != this && IsInstanceValid(other))
@@ -100,10 +109,35 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
 
         MoveAndSlide();
 
-        // Face the player, not the nav waypoint.
-        var toTarget = (target.GlobalPosition - GlobalPosition);
-        if (toTarget.LengthSquared() > 0f)
-            Rotation = toTarget.Normalized().Angle() + Mathf.Pi / 2f;
+        // ── Stuck recovery ────────────────────────────────────────────────────
+        // If the zombie moved much less than expected (clipped against a corner),
+        // after a short delay try nudging sideways to slip past the obstacle.
+        float movedDist   = GlobalPosition.DistanceTo(_prevPosition);
+        float expectedDist = MoveSpeed * (float)delta;
+        if (expectedDist > 0f && movedDist < expectedDist * StuckMinRatio)
+        {
+            _stuckTimer += (float)delta;
+            if (_stuckTimer >= StuckWindow)
+            {
+                Velocity = dir.Rotated(_stuckSide * Mathf.Pi * 0.5f) * MoveSpeed;
+                MoveAndSlide();
+                _stuckTimer = 0f;
+                _stuckSide  = -_stuckSide; // alternate left/right each time
+            }
+        }
+        else
+        {
+            _stuckTimer = 0f;
+        }
+        _prevPosition = GlobalPosition;
+
+        // Face the direction of travel (where it's walking), smoothly turning toward it.
+        Vector2 faceDir = Velocity.LengthSquared() > 1f ? Velocity : dir;
+        if (faceDir.LengthSquared() > 0.001f)
+        {
+            float targetAngle = faceDir.Angle() + Mathf.Pi / 2f;
+            Rotation = Mathf.LerpAngle(Rotation, targetAngle, (float)delta * 10f);
+        }
 
         _attackTimer -= (float)delta;
         if (GlobalPosition.DistanceTo(target.GlobalPosition) <= AttackRange && _attackTimer <= 0f)

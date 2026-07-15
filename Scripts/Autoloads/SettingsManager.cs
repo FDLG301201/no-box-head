@@ -14,6 +14,9 @@ public partial class SettingsManager : Node
     public AimMode    AimMode    { get; set; } = AimMode.Movement;
     // Session-only, not persisted to disk.
     public GameMode   GameMode   { get; set; } = GameMode.SinglePlayer;
+    public ArenaType  ArenaType  { get; set; } = ArenaType.Classic;
+    // Seed for the Random arena; assigned when a game starts so the whole session matches.
+    public ulong      ArenaSeed  { get; set; }
 
     private const string SettingsPath = "user://settings.cfg";
     private readonly ConfigFile _config = new();
