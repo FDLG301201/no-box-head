@@ -38,11 +38,15 @@ public partial class Arena : Node2D
 	private Node2D?   _players;
 	private Node2D?   _enemies;
 	private Node2D?   _bullets;
+	private Node2D?   _obstaclesRuntime;
 	private Node2D?   _enemySpawnPoints;
 	private Node2D?   _playerSpawnPoints;
 	private CameraManager? _cameraManager;
 	private Control?  _splitScreenRoot;
 	private HUD?      _hud;
+
+	private NavigationRegion2D?  _navRegion;
+	private readonly List<Barrel> _barrels = new();
 
 	private readonly PackedScene _playerScene =
 		ResourceLoader.Load<PackedScene>("res://Scenes/Entities/Player.tscn");
@@ -129,8 +133,22 @@ public partial class Arena : Node2D
 			CreateObstacle(center, size);
 	}
 
+	private const float NavMargin = 10f; // ≈ enemy body radius + buffer
+
 	private void BuildNavigationRegion()
 	{
+		_navRegion = new NavigationRegion2D();
+		AddChild(_navRegion);
+		RebuildNavPolygon();
+	}
+
+	// Rebuilds the nav mesh from the static obstacles plus any barrels currently standing.
+	// Barrels are dynamic (placed/destroyed mid-game), so this reruns whenever the barrel
+	// list changes — infrequent enough (player-triggered) that a full rebake is cheap.
+	private void RebuildNavPolygon()
+	{
+		if (_navRegion == null) return;
+
 		var navPoly = new NavigationPolygon();
 
 		// Walkable outer boundary inset from walls.
@@ -143,25 +161,16 @@ public partial class Arena : Node2D
 			new Vector2(inset, ArenaH - inset),
 		});
 
-		// Obstacles carved with a margin (≈ enemy body radius + buffer) so the nav mesh
-		// never routes enemies along a path that clips into the obstacle's physical shape.
-		// Expanded rectangles that OVERLAP (e.g. the two bars of the central cross) must be
-		// merged into a single outline first — overlapping outlines break the triangulation
-		// and leave enemies stuck at the seam, which is what was happening.
-		const float NavMargin = 10f;
+		// Obstacles carved with a margin so the nav mesh never routes enemies along a path
+		// that clips into an obstacle's physical shape. Expanded rectangles that OVERLAP
+		// (e.g. the two bars of the central cross) must be merged into a single outline first —
+		// overlapping outlines break the triangulation and leave enemies stuck at the seam.
 		var rects = new List<Vector2[]>();
 		foreach (var (center, size) in _obstacleData)
-		{
-			float hw = size.X / 2f + NavMargin;
-			float hh = size.Y / 2f + NavMargin;
-			rects.Add(new[]
-			{
-				center + new Vector2(-hw, -hh),
-				center + new Vector2( hw, -hh),
-				center + new Vector2( hw,  hh),
-				center + new Vector2(-hw,  hh),
-			});
-		}
+			rects.Add(MakeMarginRect(center, size));
+		foreach (var barrel in _barrels)
+			if (IsInstanceValid(barrel))
+				rects.Add(MakeMarginRect(barrel.GlobalPosition, barrel.Size));
 
 		foreach (var outline in MergeOverlappingRects(rects))
 			navPoly.AddOutline(outline);
@@ -169,7 +178,34 @@ public partial class Arena : Node2D
 #pragma warning disable CS0618
 		navPoly.MakePolygonsFromOutlines();
 #pragma warning restore CS0618
-		AddChild(new NavigationRegion2D { NavigationPolygon = navPoly });
+		_navRegion.NavigationPolygon = navPoly;
+	}
+
+	private static Vector2[] MakeMarginRect(Vector2 center, Vector2 size)
+	{
+		float hw = size.X / 2f + NavMargin;
+		float hh = size.Y / 2f + NavMargin;
+		return new[]
+		{
+			center + new Vector2(-hw, -hh),
+			center + new Vector2( hw, -hh),
+			center + new Vector2( hw,  hh),
+			center + new Vector2(-hw,  hh),
+		};
+	}
+
+	// Called by Barrel when placed/destroyed to keep the nav mesh (and therefore enemy
+	// pathfinding) in sync with which paths are currently blocked.
+	public void RegisterBarrel(Barrel barrel)
+	{
+		_barrels.Add(barrel);
+		RebuildNavPolygon();
+	}
+
+	public void UnregisterBarrel(Barrel barrel)
+	{
+		_barrels.Remove(barrel);
+		RebuildNavPolygon();
 	}
 
 	// Unions any obstacle rectangles that overlap so the resulting outlines are disjoint.
@@ -233,6 +269,7 @@ public partial class Arena : Node2D
 		_players          = GetOrCreate<Node2D>("Players");
 		_enemies          = GetOrCreate<Node2D>("Enemies");
 		_bullets          = GetOrCreate<Node2D>("Bullets");
+		_obstaclesRuntime = GetOrCreate<Node2D>("RuntimeObstacles");
 		_enemySpawnPoints = GetOrCreate<Node2D>("EnemySpawnPoints");
 		_playerSpawnPoints = GetOrCreate<Node2D>("PlayerSpawnPoints");
 
@@ -371,10 +408,17 @@ public partial class Arena : Node2D
 					{
 						"Shotgun"    => (Weapon)new Shotgun(),
 						"MachineGun" => (Weapon)new MachineGun(),
+						"Grenade"    => (Weapon)new GrenadeLauncher(),
+						"Barrel"     => (Weapon)new BarrelWeapon(),
 						_            => null,
 					};
 					if (w == null || !IsInstanceValid(capturedPlayer)) return;
 					w.BulletContainer = _bullets;
+					if (w is BarrelWeapon barrelWeapon)
+					{
+						barrelWeapon.ArenaRef          = this;
+						barrelWeapon.ObstacleContainer = _obstaclesRuntime;
+					}
 					capturedPlayer.AddWeapon(w);
 				};
 			}

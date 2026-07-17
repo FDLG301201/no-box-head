@@ -16,9 +16,11 @@ public partial class AmmoPack : Area2D
 
     private static readonly Dictionary<string, Color> PackColors = new()
     {
-        { "Pistol",      new Color(1f,    0.85f, 0.1f) },
-        { "Shotgun",     new Color(0.95f, 0.2f,  0.2f) },
-        { "Machine Gun", new Color(0.2f,  0.85f, 0.2f) },
+        { "Pistol",      new Color(1f,    0.85f, 0.1f)  },
+        { "Shotgun",     new Color(0.95f, 0.2f,  0.2f)  },
+        { "Machine Gun", new Color(0.2f,  0.85f, 0.2f)  },
+        { "Barrel",      new Color(0.55f, 0.35f, 0.1f)  },
+        { "Grenade",     new Color(0.85f, 0.15f, 0.85f) },
     };
 
     public override void _Ready()

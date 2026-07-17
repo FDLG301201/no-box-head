@@ -34,6 +34,12 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
     private const float         StuckWindow   = 0.25f;
     private const float         StuckMinRatio = 0.2f;
 
+    // Same barrel-breaking behaviour as Enemy: if the player is walled off, path to and
+    // smash the nearest barrel instead of standing at range shooting at a wall.
+    private Barrel?              _targetBarrel;
+    private float                _barrelAttackTimer;
+    private const float          BarrelAttackRange = 40f;
+
     private static readonly Color DemonColor = new(0.85f, 0.1f, 0.1f);
 
     public void SetProjectileContainer(Node container) => _projectileContainer = container;
@@ -68,13 +74,27 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
         float   dist = GlobalPosition.DistanceTo(target.GlobalPosition);
         Vector2 dir  = (target.GlobalPosition - GlobalPosition).Normalized();
 
-        // Navigate toward player only while outside preferred shoot range.
-        if (dist > ShootRange * 0.65f)
+        // If barrels have walled off the player, path to the nearest one and smash it
+        // instead of standing still shooting fireballs into a wall.
+        bool playerReachable = _navAgent == null || _navAgent.IsTargetReachable();
+        if (!playerReachable)
+            _targetBarrel = (_targetBarrel != null && IsInstanceValid(_targetBarrel) && _targetBarrel.IsAlive)
+                ? _targetBarrel
+                : FindNearestBarrel();
+        else
+            _targetBarrel = null;
+
+        Vector2 navTarget = _targetBarrel?.GlobalPosition ?? target.GlobalPosition;
+        float   navTargetDist = GlobalPosition.DistanceTo(navTarget);
+
+        // Navigate toward the target only while outside preferred shoot range (skipped
+        // entirely while chasing a barrel — it has no ranged attack of its own).
+        if (_targetBarrel != null || dist > ShootRange * 0.65f)
         {
-            Vector2 navDir = dir;
+            Vector2 navDir = _targetBarrel != null ? (navTarget - GlobalPosition).Normalized() : dir;
             if (_navAgent != null)
             {
-                _navAgent.TargetPosition = target.GlobalPosition;
+                _navAgent.TargetPosition = navTarget;
                 if (!_navAgent.IsNavigationFinished())
                 {
                     var nextPos = _navAgent.GetNextPathPosition();
@@ -121,7 +141,7 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
             _stuckTimer += (float)delta;
             if (_stuckTimer >= StuckWindow)
             {
-                Vector2 navDir2 = dir;
+                Vector2 navDir2 = (navTarget - GlobalPosition).Normalized();
                 if (_navAgent != null && !_navAgent.IsNavigationFinished())
                     navDir2 = (_navAgent.GetNextPathPosition() - GlobalPosition).Normalized();
                 Velocity = navDir2.Rotated(_stuckSide * Mathf.Pi * 0.5f) * MoveSpeed;
@@ -136,24 +156,48 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
         }
         _prevPosition = GlobalPosition;
 
-        Rotation = dir.Angle() + Mathf.Pi / 2f;
+        Rotation = (_targetBarrel != null ? navTarget - GlobalPosition : dir).Angle() + Mathf.Pi / 2f;
         _attackTimer -= (float)delta;
         _shootTimer  -= (float)delta;
 
-        if (dist <= AttackRange && _attackTimer <= 0f)
+        if (_targetBarrel != null)
         {
-            target.TakeDamage(AttackDamage);
-            _attackTimer = AttackCooldown;
+            if (navTargetDist <= BarrelAttackRange && _attackTimer <= 0f)
+            {
+                _targetBarrel.TakeDamage(AttackDamage);
+                _attackTimer = AttackCooldown;
+            }
         }
-
-        if (dist <= ShootRange && _shootTimer <= 0f)
+        else
         {
-            FireProjectile(dir);
-            _shootTimer = ShootCooldown;
+            if (dist <= AttackRange && _attackTimer <= 0f)
+            {
+                target.TakeDamage(AttackDamage);
+                _attackTimer = AttackCooldown;
+            }
+
+            if (dist <= ShootRange && _shootTimer <= 0f)
+            {
+                FireProjectile(dir);
+                _shootTimer = ShootCooldown;
+            }
         }
 
         if (Multiplayer.HasMultiplayerPeer())
             Rpc(MethodName.SyncState, GlobalPosition, Rotation, _currentHealth);
+    }
+
+    private Barrel? FindNearestBarrel()
+    {
+        Barrel? nearest = null;
+        float   minDist = float.MaxValue;
+        foreach (var node in GetTree().GetNodesInGroup("barrels"))
+        {
+            if (node is not Barrel b || !IsInstanceValid(b) || !b.IsAlive) continue;
+            float d = GlobalPosition.DistanceTo(b.GlobalPosition);
+            if (d < minDist) { minDist = d; nearest = b; }
+        }
+        return nearest;
     }
 
     private void FireProjectile(Vector2 dir)

@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Entities/GrenadeProjectile.cs" id="1_grenade"]
+
+[node name="Grenade" type="Area2D"]
+collision_layer = 0
+collision_mask = 5
+script = ExtResource("1_grenade")

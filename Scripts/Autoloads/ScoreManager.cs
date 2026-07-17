@@ -19,14 +19,29 @@ public partial class ScoreManager : Node
     // score threshold → weapon id (must match Arena.cs WeaponUnlocked switch)
     private static readonly (int Threshold, string WeaponId)[] Unlocks =
     {
+        (300,  "Barrel"),
         (500,  "Shotgun"),
         (1500, "MachineGun"),
+        (3000, "Grenade"),
     };
-    // Maps internal id → WeaponName (for ammo pack typing)
+    // Maps internal id → WeaponName (for ammo pack typing).
     private static readonly System.Collections.Generic.Dictionary<string, string> WeaponIdToName = new()
     {
         { "Shotgun",    "Shotgun"     },
         { "MachineGun", "Machine Gun" },
+        { "Barrel",     "Barrel"      },
+        { "Grenade",    "Grenade"     },
+    };
+
+    // Relative drop weight per ammo type when a pack spawns. Barrel drops at the same rate as
+    // regular weapons; Grenade ammo stays intentionally rare even after it's unlocked.
+    private static readonly System.Collections.Generic.Dictionary<string, float> AmmoDropWeight = new()
+    {
+        { "Pistol",      1f    },
+        { "Shotgun",     1f    },
+        { "Machine Gun", 1f    },
+        { "Barrel",      1f    },
+        { "Grenade",     0.12f },
     };
     private readonly HashSet<string> _unlockedWeapons = new();
 
@@ -66,13 +81,26 @@ public partial class ScoreManager : Node
                 EmitSignal(SignalName.WeaponUnlocked, weaponId);
     }
 
-    // Returns a WeaponName picked randomly from unlocked weapon types (for ammo drops).
+    // Returns a WeaponName picked from unlocked weapon types (for ammo drops), weighted so
+    // rare ammo (Grenade) shows up far less often than the rest.
     public string GetRandomUnlockedAmmoType()
     {
         var available = new System.Collections.Generic.List<string> { "Pistol" };
         foreach (var id in _unlockedWeapons)
             if (WeaponIdToName.TryGetValue(id, out var name)) available.Add(name);
-        return available[(int)(GD.Randi() % (uint)available.Count)];
+
+        float totalWeight = 0f;
+        foreach (var name in available)
+            totalWeight += AmmoDropWeight.GetValueOrDefault(name, 1f);
+
+        float roll = GD.Randf() * totalWeight;
+        float cumulative = 0f;
+        foreach (var name in available)
+        {
+            cumulative += AmmoDropWeight.GetValueOrDefault(name, 1f);
+            if (roll <= cumulative) return name;
+        }
+        return available[^1];
     }
 
     public void Reset()
