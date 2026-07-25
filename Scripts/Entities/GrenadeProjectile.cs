@@ -9,10 +9,13 @@ namespace NoBoxHead;
 public partial class GrenadeProjectile : Area2D
 {
     [Export] public float Speed            = 320f;
-    [Export] public float Damage           = 90f;
-    [Export] public float KnockbackForce   = 260f;
-    [Export] public float ExplosionRadius  = 95f;
+    [Export] public float Damage           = 300f;
+    [Export] public float KnockbackForce   = 420f;
+    [Export] public float ExplosionRadius  = 135f;
     [Export] public float FuseTime         = 1.1f;
+
+    // Even at the very edge of the blast a zombie (30 HP) / sprinter (15 HP) dies outright.
+    private const float MinDamageFactor = 0.5f;
 
     private Vector2 _direction;
     private bool    _exploded;
@@ -55,6 +58,7 @@ public partial class GrenadeProjectile : Area2D
         if (_exploded || !IsInstanceValid(this)) return;
         _exploded = true;
         SetPhysicsProcess(false);
+        AudioManager.Instance?.Play(AudioManager.Explosion);
 
         foreach (var node in GetTree().GetNodesInGroup("enemies"))
         {
@@ -67,13 +71,13 @@ public partial class GrenadeProjectile : Area2D
             if (dist > ExplosionRadius) continue;
 
             float falloff = 1f - dist / ExplosionRadius;
-            d.TakeDamage(Damage * Mathf.Max(falloff, 0.35f));
+            d.TakeDamage(Damage * Mathf.Max(falloff, MinDamageFactor));
+
+            var away = dist > 1f ? (n2d.GlobalPosition - GlobalPosition).Normalized() : Vector2.Up;
+            BloodSystem.Instance?.Splatter(n2d.GlobalPosition, away, 1.3f);
 
             if (node is IKnockbackable kb)
-            {
-                var away = dist > 1f ? (n2d.GlobalPosition - GlobalPosition).Normalized() : Vector2.Up;
                 kb.ApplyKnockback(away * KnockbackForce * Mathf.Max(falloff, 0.4f));
-            }
         }
 
         ShowBlast();

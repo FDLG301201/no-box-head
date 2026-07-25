@@ -15,6 +15,7 @@ public partial class Shotgun : Weapon
     private const float PelletFalloff    = 0.3f; // falloff starts at 30% of range
 
     public override string WeaponName => "Shotgun";
+    protected override string FireSound => AudioManager.Shotgun;
 
     public override void _Ready()
     {

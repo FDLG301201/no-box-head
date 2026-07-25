@@ -20,7 +20,7 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
     private float               _currentHealth;
     private float               _attackTimer;
     private Vector2             _knockback;
-    private ColorRect?          _visual;
+    private Sprite2D?           _visual;
     private ColorRect?          _healthFill;
     private bool                _isHost;
     private NavigationAgent2D?  _navAgent;
@@ -37,8 +37,6 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
     private Barrel?              _targetBarrel;
     private float                _barrelAttackTimer;
     private const float          BarrelAttackRange = 40f;
-
-    private static readonly Color EnemyColor = new(0.15f, 0.7f, 0.25f);
 
     public override void _Ready()
     {
@@ -152,13 +150,11 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
         }
         _prevPosition = GlobalPosition;
 
-        // Face the direction of travel (where it's walking), smoothly turning toward it.
+        // The sprite is a fixed front-facing pose (no rotation frames), so just mirror it
+        // horizontally to hint at travel direction instead of rotating the whole body.
         Vector2 faceDir = Velocity.LengthSquared() > 1f ? Velocity : dir;
-        if (faceDir.LengthSquared() > 0.001f)
-        {
-            float targetAngle = faceDir.Angle() + Mathf.Pi / 2f;
-            Rotation = Mathf.LerpAngle(Rotation, targetAngle, (float)delta * 10f);
-        }
+        if (_visual != null && Mathf.Abs(faceDir.X) > 5f)
+            _visual.FlipH = faceDir.X < 0f;
 
         _attackTimer -= (float)delta;
         if (GlobalPosition.DistanceTo(target.GlobalPosition) <= AttackRange && _attackTimer <= 0f)
@@ -231,11 +227,14 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
     private void DieRpc()
     {
         _currentHealth = 0f;
-        if (_visual != null) _visual.Color = new Color(0.3f, 0.3f, 0.3f);
+        if (_visual != null) _visual.Modulate = new Color(0.4f, 0.4f, 0.4f);
         SetPhysicsProcess(false);
         ScoreManager.Instance?.RegisterKill(10);
         GameManager.Instance?.OnEnemyKilled();
+        BloodSystem.Instance?.Pool(GlobalPosition);
+        AudioManager.Instance?.Play(AudioManager.EnemyDeath, 0.7f, 0.12f);
         TryDropAmmo();
+        HealthPack.TryDrop(GetParent(), GlobalPosition, 0.03f);
         CallDeferred(Node.MethodName.QueueFree);
     }
 
@@ -263,26 +262,31 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
 
     private void BuildPlaceholderVisual()
     {
-        _visual = new ColorRect
+        // Sprite's native canvas is 480x580 with the character's visual center around
+        // (239, 301) — offset math below keeps that point pinned to the node's origin
+        // (where the collision circle and pathing both live) regardless of scale.
+        const float scale = 0.075f;
+        _visual = new Sprite2D
         {
-            Color    = EnemyColor,
-            Size     = new Vector2(22, 22),
-            Position = new Vector2(-11, -11)
+            Texture  = ResourceLoader.Load<Texture2D>("res://Assets/Sprites/Enemies/zombie.png"),
+            Centered = false,
+            Scale    = new Vector2(scale, scale),
+            Position = new Vector2(-239f * scale, -301.5f * scale),
         };
         AddChild(_visual);
 
         AddChild(new ColorRect
         {
             Color    = new Color(0.2f, 0.2f, 0.2f),
-            Size     = new Vector2(26, 4),
-            Position = new Vector2(-13, -18)
+            Size     = new Vector2(30, 4),
+            Position = new Vector2(-15, -29)
         });
 
         _healthFill = new ColorRect
         {
             Color    = new Color(0.9f, 0.2f, 0.2f),
-            Size     = new Vector2(26, 4),
-            Position = new Vector2(-13, -18)
+            Size     = new Vector2(30, 4),
+            Position = new Vector2(-15, -29)
         };
         AddChild(_healthFill);
 
@@ -292,6 +296,6 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
     private void UpdateHealthBar()
     {
         if (_healthFill == null) return;
-        _healthFill.Size = new Vector2(26f * (_currentHealth / MaxHealth), 4f);
+        _healthFill.Size = new Vector2(30f * (_currentHealth / MaxHealth), 4f);
     }
 }

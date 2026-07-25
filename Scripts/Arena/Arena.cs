@@ -123,6 +123,9 @@ public partial class Arena : Node2D
 			Size  = new Vector2(ArenaW, ArenaH)
 		});
 
+		// Added right after the floor so stains sit on the ground but under walls and entities.
+		AddChild(new BloodSystem());
+
 		// Outer walls.
 		CreateWall(new Vector2(ArenaW / 2f, -WallT / 2f),        new Vector2(ArenaW + WallT * 2, WallT));
 		CreateWall(new Vector2(ArenaW / 2f, ArenaH + WallT / 2f), new Vector2(ArenaW + WallT * 2, WallT));
@@ -303,6 +306,17 @@ public partial class Arena : Node2D
 		AddChild(_splitScreenRoot);
 
 		SpawnInitialAmmoPacks();
+		SpawnInitialHealthPacks();
+	}
+
+	private void SpawnInitialHealthPacks()
+	{
+		var packScene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/HealthPack.tscn");
+		if (packScene == null) return;
+
+		var pack = packScene.Instantiate<HealthPack>();
+		pack.GlobalPosition = FreeSpotNear(new Vector2(ArenaW / 2f, ArenaH / 2f));
+		AddChild(pack);
 	}
 
 	private void SpawnInitialAmmoPacks()
@@ -315,9 +329,43 @@ public partial class Arena : Node2D
 		{
 			var pack = packScene.Instantiate<AmmoPack>();
 			pack.AmmoAmount     = 12;
-			pack.GlobalPosition = pos;
+			pack.GlobalPosition = FreeSpotNear(pos);
 			AddChild(pack);
 		}
+	}
+
+	// Nudges a desired pickup position off any obstacle (arena layouts vary, so a fixed spot
+	// can land on a wall). Returns the point if clear, else the nearest free spot around it.
+	private Vector2 FreeSpotNear(Vector2 desired)
+	{
+		const float clearance = 22f; // pickup radius (14) + a little breathing room
+		if (IsClearOfObstacles(desired, clearance)) return desired;
+
+		for (int ring = 1; ring <= 8; ring++)
+		{
+			float radius = ring * 28f;
+			for (int i = 0; i < 12; i++)
+			{
+				var candidate = desired + Vector2.FromAngle(Mathf.Tau * i / 12f) * radius;
+				if (candidate.X < 48f || candidate.Y < 48f ||
+					candidate.X > ArenaW - 48f || candidate.Y > ArenaH - 48f)
+					continue;
+				if (IsClearOfObstacles(candidate, clearance)) return candidate;
+			}
+		}
+		return desired; // arena is unusually packed — fall back to the original spot
+	}
+
+	private bool IsClearOfObstacles(Vector2 point, float clearance)
+	{
+		foreach (var (center, size) in _obstacleData)
+		{
+			float hw = size.X / 2f + clearance;
+			float hh = size.Y / 2f + clearance;
+			if (Mathf.Abs(point.X - center.X) < hw && Mathf.Abs(point.Y - center.Y) < hh)
+				return false;
+		}
+		return true;
 	}
 
 	private T GetOrCreate<T>(string name) where T : Node, new()
@@ -383,7 +431,8 @@ public partial class Arena : Node2D
 
 				if (_hud != null)
 				{
-					_hud.SwitchWeaponCallback = player.SwitchToNextWeapon;
+					_hud.SwitchWeaponCallback     = player.SwitchToNextWeapon;
+					_hud.SwitchWeaponPrevCallback = player.SwitchToPreviousWeapon;
 					_hud.BindToPlayer(player, pistol);
 				}
 			}

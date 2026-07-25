@@ -20,7 +20,7 @@ public partial class Sprinter : CharacterBody2D, IDamageable, IKnockbackable
     private float               _currentHealth;
     private float               _attackTimer;
     private Vector2             _knockback;
-    private ColorRect?          _visual;
+    private Sprite2D?           _visual;
     private ColorRect?          _healthFill;
     private bool                _isHost;
     private NavigationAgent2D?  _navAgent;
@@ -34,8 +34,6 @@ public partial class Sprinter : CharacterBody2D, IDamageable, IKnockbackable
     private Barrel?              _targetBarrel;
     private float                _barrelAttackTimer;
     private const float          BarrelAttackRange = 36f;
-
-    private static readonly Color SprinterColor = new(0.95f, 0.6f, 0.1f);
 
     public override void _Ready()
     {
@@ -141,11 +139,8 @@ public partial class Sprinter : CharacterBody2D, IDamageable, IKnockbackable
         _prevPosition = GlobalPosition;
 
         Vector2 faceDir = Velocity.LengthSquared() > 1f ? Velocity : dir;
-        if (faceDir.LengthSquared() > 0.001f)
-        {
-            float targetAngle = faceDir.Angle() + Mathf.Pi / 2f;
-            Rotation = Mathf.LerpAngle(Rotation, targetAngle, (float)delta * 14f);
-        }
+        if (_visual != null && Mathf.Abs(faceDir.X) > 5f)
+            _visual.FlipH = faceDir.X < 0f;
 
         _attackTimer -= (float)delta;
         if (GlobalPosition.DistanceTo(target.GlobalPosition) <= AttackRange && _attackTimer <= 0f)
@@ -218,11 +213,14 @@ public partial class Sprinter : CharacterBody2D, IDamageable, IKnockbackable
     private void DieRpc()
     {
         _currentHealth = 0f;
-        if (_visual != null) _visual.Color = new Color(0.3f, 0.3f, 0.3f);
+        if (_visual != null) _visual.Modulate = new Color(0.4f, 0.4f, 0.4f);
         SetPhysicsProcess(false);
         ScoreManager.Instance?.RegisterKill(8);
         GameManager.Instance?.OnEnemyKilled();
+        BloodSystem.Instance?.Pool(GlobalPosition, 0.8f);
+        AudioManager.Instance?.Play(AudioManager.EnemyDeath, 0.6f, 0.18f);
         TryDropAmmo();
+        HealthPack.TryDrop(GetParent(), GlobalPosition, 0.025f);
         CallDeferred(Node.MethodName.QueueFree);
     }
 
@@ -250,26 +248,30 @@ public partial class Sprinter : CharacterBody2D, IDamageable, IKnockbackable
 
     private void BuildPlaceholderVisual()
     {
-        _visual = new ColorRect
+        // Sprite's native canvas is 400x460 with the character's visual center around
+        // (199, 213) — offset math below keeps that point pinned to the node's origin.
+        const float scale = 0.065f;
+        _visual = new Sprite2D
         {
-            Color    = SprinterColor,
-            Size     = new Vector2(18, 18),
-            Position = new Vector2(-9, -9)
+            Texture  = ResourceLoader.Load<Texture2D>("res://Assets/Sprites/Enemies/runner_amarillo.png"),
+            Centered = false,
+            Scale    = new Vector2(scale, scale),
+            Position = new Vector2(-199f * scale, -213f * scale),
         };
         AddChild(_visual);
 
         AddChild(new ColorRect
         {
             Color    = new Color(0.2f, 0.2f, 0.2f),
-            Size     = new Vector2(22, 4),
-            Position = new Vector2(-11, -15)
+            Size     = new Vector2(24, 4),
+            Position = new Vector2(-12, -19)
         });
 
         _healthFill = new ColorRect
         {
             Color    = new Color(0.9f, 0.2f, 0.2f),
-            Size     = new Vector2(22, 4),
-            Position = new Vector2(-11, -15)
+            Size     = new Vector2(24, 4),
+            Position = new Vector2(-12, -19)
         };
         AddChild(_healthFill);
 
@@ -279,6 +281,6 @@ public partial class Sprinter : CharacterBody2D, IDamageable, IKnockbackable
     private void UpdateHealthBar()
     {
         if (_healthFill == null) return;
-        _healthFill.Size = new Vector2(22f * (_currentHealth / MaxHealth), 4f);
+        _healthFill.Size = new Vector2(24f * (_currentHealth / MaxHealth), 4f);
     }
 }

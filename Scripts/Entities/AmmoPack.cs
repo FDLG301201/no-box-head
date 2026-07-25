@@ -14,13 +14,14 @@ public partial class AmmoPack : Area2D
 
     private bool _pickedUp;
 
-    private static readonly Dictionary<string, Color> PackColors = new()
+    // WeaponType (a WeaponName) → ammo pickup sprite.
+    private static readonly Dictionary<string, string> AmmoSprites = new()
     {
-        { "Pistol",      new Color(1f,    0.85f, 0.1f)  },
-        { "Shotgun",     new Color(0.95f, 0.2f,  0.2f)  },
-        { "Machine Gun", new Color(0.2f,  0.85f, 0.2f)  },
-        { "Barrel",      new Color(0.55f, 0.35f, 0.1f)  },
-        { "Grenade",     new Color(0.85f, 0.15f, 0.85f) },
+        { "Pistol",      "res://Assets/Sprites/Ammo/pistol.png"     },
+        { "Shotgun",     "res://Assets/Sprites/Ammo/shotgun.png"    },
+        { "Machine Gun", "res://Assets/Sprites/Ammo/machinegun.png" },
+        { "Barrel",      "res://Assets/Sprites/Ammo/barrel.png"     },
+        { "Grenade",     "res://Assets/Sprites/Ammo/grenade.png"    },
     };
 
     public override void _Ready()
@@ -30,22 +31,42 @@ public partial class AmmoPack : Area2D
         Monitoring     = true;
         Monitorable    = true;
 
-        var color = PackColors.TryGetValue(WeaponType, out var c) ? c : PackColors["Pistol"];
-
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 14f } });
-        AddChild(new ColorRect
+
+        var path = AmmoSprites.GetValueOrDefault(WeaponType, AmmoSprites["Pistol"]);
+        AddChild(new Sprite2D
         {
-            Color    = color,
-            Size     = new Vector2(20, 12),
-            Position = new Vector2(-10, -6)
+            Texture  = ResourceLoader.Load<Texture2D>(path),
+            Centered = true,
+            Scale    = new Vector2(0.62f, 0.62f),
         });
 
-        var lbl = new Label { Text = $"+{AmmoAmount}", Position = new Vector2(-10, -7) };
+        // "+N" tag sits just below the icon so it doesn't cover it.
+        var lbl = new Label
+        {
+            Text                = $"+{AmmoAmount}",
+            Position            = new Vector2(-14, 10),
+            Size                = new Vector2(28, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
         lbl.AddThemeFontSizeOverride("font_size", 10);
-        lbl.AddThemeColorOverride("font_color", Colors.Black);
+        lbl.AddThemeColorOverride("font_color", Colors.White);
+        lbl.AddThemeColorOverride("font_outline_color", Colors.Black);
+        lbl.AddThemeConstantOverride("outline_size", 4);
         AddChild(lbl);
 
         BodyEntered += OnBodyEntered;
+        Bob();
+    }
+
+    // Gentle hover so pickups read as collectible, matching the health pack.
+    private void Bob()
+    {
+        var tween = CreateTween().SetLoops();
+        tween.TweenProperty(this, "position:y", Position.Y - 3f, 0.7)
+             .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
+        tween.TweenProperty(this, "position:y", Position.Y + 3f, 0.7)
+             .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
     }
 
     private void OnBodyEntered(Node2D body)
@@ -53,6 +74,7 @@ public partial class AmmoPack : Area2D
         if (_pickedUp || body is not Player player) return;
         _pickedUp = true;
         player.AddAmmo(AmmoAmount, WeaponType);
+        AudioManager.Instance?.Play(AudioManager.PickupAmmo, 0.7f);
         QueueFree();
     }
 }

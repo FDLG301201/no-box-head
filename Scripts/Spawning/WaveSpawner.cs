@@ -14,7 +14,11 @@ public partial class WaveSpawner : Node
     [Export] public NodePath SpawnPointsPath      = "../../EnemySpawnPoints";
     [Export] public NodePath BulletsContainerPath = "../../Bullets";
 
-    private const int OgreWaveInterval = 10;
+    // Mini-boss schedule: debuts on wave 4, returns every 2 waves after that, and every
+    // 3rd appearance brings an extra ogre along (waves 8, 14, 20… step the count up).
+    private const int OgreFirstWave      = 4;
+    private const int OgreWaveInterval   = 2;
+    private const int OgreAppearancesPerExtra = 3;
 
     private Node?              _enemyContainer;
     private Node?              _bulletsContainer;
@@ -49,11 +53,11 @@ public partial class WaveSpawner : Node
     {
         if (!_isHost) return;
 
-        int  zombieCount   = 3 + waveNumber * 2;
-        int  demonCount    = waveNumber >= 3 ? (waveNumber - 2) : 0;
-        int  sprinterCount = waveNumber >= 2 ? 1 + waveNumber / 2 : 0;
-        bool spawnOgre     = waveNumber % OgreWaveInterval == 0;
-        int  total         = zombieCount + demonCount + sprinterCount + (spawnOgre ? 1 : 0);
+        int zombieCount   = 3 + waveNumber * 2;
+        int demonCount    = waveNumber >= 3 ? (waveNumber - 2) : 0;
+        int sprinterCount = waveNumber >= 2 ? 1 + waveNumber / 2 : 0;
+        int ogreCount     = OgreCountForWave(waveNumber);
+        int total         = zombieCount + demonCount + sprinterCount + ogreCount;
 
         GameManager.Instance?.SetEnemiesForWave(total);
 
@@ -76,7 +80,7 @@ public partial class WaveSpawner : Node
             if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.SpawnDemonRpc, pos, delay * 0.3f);
             else SpawnDemonRpc(pos, delay * 0.3f);
         }
-        if (spawnOgre)
+        for (int i = 0; i < ogreCount; i++, delay++)
         {
             var pos = GetNextSpawnPosition();
             if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.SpawnOgreRpc, pos, delay * 0.3f);
@@ -91,7 +95,8 @@ public partial class WaveSpawner : Node
         async void Deferred()
         {
             if (delay > 0f)
-                await ToSignal(GetTree().CreateTimer(delay), SceneTreeTimer.SignalName.Timeout);
+                // processAlways:false so staggered spawns halt while the game is paused.
+                await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
             var enemy = _enemyScene.Instantiate<Enemy>();
             _enemyContainer.AddChild(enemy);
@@ -107,7 +112,8 @@ public partial class WaveSpawner : Node
         async void Deferred()
         {
             if (delay > 0f)
-                await ToSignal(GetTree().CreateTimer(delay), SceneTreeTimer.SignalName.Timeout);
+                // processAlways:false so staggered spawns halt while the game is paused.
+                await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
             var demon = _demonScene.Instantiate<Demon>();
             _enemyContainer.AddChild(demon);
@@ -125,7 +131,8 @@ public partial class WaveSpawner : Node
         async void Deferred()
         {
             if (delay > 0f)
-                await ToSignal(GetTree().CreateTimer(delay), SceneTreeTimer.SignalName.Timeout);
+                // processAlways:false so staggered spawns halt while the game is paused.
+                await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
             var sprinter = _sprinterScene.Instantiate<Sprinter>();
             _enemyContainer.AddChild(sprinter);
@@ -141,13 +148,24 @@ public partial class WaveSpawner : Node
         async void Deferred()
         {
             if (delay > 0f)
-                await ToSignal(GetTree().CreateTimer(delay), SceneTreeTimer.SignalName.Timeout);
+                // processAlways:false so staggered spawns halt while the game is paused.
+                await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
             var ogre = _ogreScene.Instantiate<Ogre>();
             _enemyContainer.AddChild(ogre);
             ogre.GlobalPosition = position;
         }
         Deferred();
+    }
+
+    // 0 on waves without a mini-boss, otherwise 1 plus one extra per 3 appearances so far.
+    private static int OgreCountForWave(int waveNumber)
+    {
+        if (waveNumber < OgreFirstWave) return 0;
+        if ((waveNumber - OgreFirstWave) % OgreWaveInterval != 0) return 0;
+
+        int appearance = (waveNumber - OgreFirstWave) / OgreWaveInterval + 1; // 1-based
+        return 1 + appearance / OgreAppearancesPerExtra;
     }
 
     private Vector2 GetNextSpawnPosition()

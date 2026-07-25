@@ -4,7 +4,8 @@ namespace NoBoxHead;
 
 public partial class HUD : CanvasLayer
 {
-	private Label?     _waveLabel;
+	private Label?     _waveAnnounce;   // big zoom-in banner shown at the start of each wave
+	private Label?     _pauseWaveLabel; // wave readout, now only visible in the pause menu
 	private Label?     _enemiesLabel;
 	private Label?     _ammoLabel;
 	private Label?     _reloadLabel;
@@ -15,10 +16,15 @@ public partial class HUD : CanvasLayer
 	private ColorRect? _healthFill;
 	private Control?   _joystickLayer;
 
-	private ColorRect? _pauseOverlay;
+	private ColorRect?      _pauseOverlay;
+	private PanelContainer? _pauseMainPanel;
+	private PanelContainer? _pauseSettingsPanel;
 	private ColorRect? _gameOverOverlay;
 	private Label?     _goScoreLabel;
 	private Label?     _goWaveLabel;
+
+	private readonly System.Collections.Generic.Dictionary<AimMode, Button> _aimButtons = new();
+	private HSlider? _pauseVolumeSlider;
 
 	// Player 2 status panel (local co-op only).
 	private ColorRect? _healthFillP2;
@@ -28,10 +34,13 @@ public partial class HUD : CanvasLayer
 
 	public bool IsGameOver { get; private set; }
 
-	public System.Action? SwitchWeaponCallback { get; set; }
-	public System.Action? PauseCallback        { get; set; }
+	public System.Action? SwitchWeaponCallback     { get; set; }
+	public System.Action? SwitchWeaponPrevCallback { get; set; }
+	public System.Action? PauseCallback            { get; set; }
 
-	private float _maxHealth = 100f;
+	private float  _maxHealth   = 100f;
+	private int    _currentWave = 1;
+	private Tween? _waveTween;
 
 	public override void _UnhandledInput(InputEvent ev)
 	{
@@ -57,10 +66,6 @@ public partial class HUD : CanvasLayer
 		{
 			GameManager.Instance.WaveStarted             += OnWaveStarted;
 			GameManager.Instance.EnemiesRemainingChanged += OnEnemiesChanged;
-			GameManager.Instance.WaveCompleted           += w =>
-			{
-				if (_waveLabel != null) _waveLabel.Text = $"Wave {w} complete!";
-			};
 		}
 
 		if (ScoreManager.Instance != null)
@@ -101,24 +106,40 @@ public partial class HUD : CanvasLayer
 		_weaponLabel.AddThemeFontSizeOverride("font_size", 14);
 		AddChild(_weaponLabel);
 
+		var prevBtn = new Button
+		{
+			Text     = "[E] Prev",
+			Position = new Vector2(10, 96),
+			Size     = new Vector2(100, 28),
+		};
+		prevBtn.Pressed += () => SwitchWeaponPrevCallback?.Invoke();
+		AddChild(prevBtn);
+
 		var switchBtn = new Button
 		{
-			Text     = "[Q] Switch",
-			Position = new Vector2(10, 96),
-			Size     = new Vector2(120, 28),
+			Text     = "[Q] Next",
+			Position = new Vector2(116, 96),
+			Size     = new Vector2(100, 28),
 		};
 		switchBtn.Pressed += () => SwitchWeaponCallback?.Invoke();
 		AddChild(switchBtn);
 
-		_waveLabel = new Label
+		// Wave banner: hidden by default, zooms in briefly whenever a wave starts.
+		// Full-rect so it can scale around the screen centre; ignores mouse input.
+		_waveAnnounce = new Label
 		{
-			Text                = "Wave 1",
-			AnchorLeft          = 0.5f, AnchorRight = 0.5f,
-			Position            = new Vector2(-60, 10),
+			Text                = "",
+			AnchorRight         = 1f, AnchorBottom = 1f,
 			HorizontalAlignment = HorizontalAlignment.Center,
+			VerticalAlignment   = VerticalAlignment.Center,
+			MouseFilter         = Control.MouseFilterEnum.Ignore,
+			Visible             = false,
 		};
-		_waveLabel.AddThemeFontSizeOverride("font_size", 22);
-		AddChild(_waveLabel);
+		_waveAnnounce.AddThemeFontSizeOverride("font_size", 64);
+		_waveAnnounce.AddThemeColorOverride("font_color", new Color(1f, 0.85f, 0.2f));
+		_waveAnnounce.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f));
+		_waveAnnounce.AddThemeConstantOverride("outline_size", 8);
+		AddChild(_waveAnnounce);
 
 		_enemiesLabel = new Label
 		{
@@ -230,14 +251,14 @@ public partial class HUD : CanvasLayer
 		{
 			AnchorLeft     = 0.5f, AnchorRight  = 0.5f,
 			AnchorTop      = 0.5f, AnchorBottom = 0.5f,
-			OffsetLeft     = -140f, OffsetRight  = 140f,
-			OffsetTop      = -190f, OffsetBottom = 190f,
+			OffsetLeft     = -160f, OffsetRight  = 160f,
+			OffsetTop      = -250f, OffsetBottom = 250f,
 			GrowHorizontal = Control.GrowDirection.Both,
 			GrowVertical   = Control.GrowDirection.Both,
 		};
 
 		var vbox = new VBoxContainer();
-		vbox.AddThemeConstantOverride("separation", 14);
+		vbox.AddThemeConstantOverride("separation", 12);
 		panel.AddChild(vbox);
 
 		var title = new Label
@@ -248,11 +269,25 @@ public partial class HUD : CanvasLayer
 		title.AddThemeFontSizeOverride("font_size", 38);
 		vbox.AddChild(title);
 
+		// Wave readout lives here now instead of cluttering the in-game HUD.
+		_pauseWaveLabel = new Label
+		{
+			Text                = "Wave 1",
+			HorizontalAlignment = HorizontalAlignment.Center,
+		};
+		_pauseWaveLabel.AddThemeFontSizeOverride("font_size", 22);
+		_pauseWaveLabel.AddThemeColorOverride("font_color", new Color(1f, 0.85f, 0.2f));
+		vbox.AddChild(_pauseWaveLabel);
+
 		vbox.AddChild(new HSeparator());
 
 		var resumeBtn = MakeMenuButton("Resume");
 		resumeBtn.Pressed += TogglePause;
 		vbox.AddChild(resumeBtn);
+
+		var settingsBtn = MakeMenuButton("Settings");
+		settingsBtn.Pressed += () => ShowPauseSettings(true);
+		vbox.AddChild(settingsBtn);
 
 		var restartBtn = MakeMenuButton("Restart");
 		restartBtn.Pressed += () =>
@@ -270,8 +305,167 @@ public partial class HUD : CanvasLayer
 		};
 		vbox.AddChild(menuBtn);
 
+		_pauseMainPanel = panel;
 		_pauseOverlay.AddChild(panel);
+		BuildPauseSettingsPanel();
 		AddChild(_pauseOverlay);
+	}
+
+	// In-pause settings sub-panel. Swaps places with the main pause panel.
+	private void BuildPauseSettingsPanel()
+	{
+		var panel = new PanelContainer
+		{
+			AnchorLeft     = 0.5f, AnchorRight  = 0.5f,
+			AnchorTop      = 0.5f, AnchorBottom = 0.5f,
+			OffsetLeft     = -160f, OffsetRight  = 160f,
+			OffsetTop      = -250f, OffsetBottom = 250f,
+			GrowHorizontal = Control.GrowDirection.Both,
+			GrowVertical   = Control.GrowDirection.Both,
+			Visible        = false,
+		};
+
+		var vbox = new VBoxContainer();
+		vbox.AddThemeConstantOverride("separation", 12);
+		panel.AddChild(vbox);
+
+		var title = new Label
+		{
+			Text                = "SETTINGS",
+			HorizontalAlignment = HorizontalAlignment.Center,
+		};
+		title.AddThemeFontSizeOverride("font_size", 32);
+		vbox.AddChild(title);
+
+		vbox.AddChild(new HSeparator());
+
+		BuildPauseAimControls(vbox);
+		BuildPauseVolumeControl(vbox);
+
+		vbox.AddChild(new HSeparator());
+
+		var backBtn = MakeMenuButton("Back");
+		backBtn.Pressed += () => ShowPauseSettings(false);
+		vbox.AddChild(backBtn);
+
+		_pauseSettingsPanel = panel;
+		_pauseOverlay!.AddChild(panel);
+	}
+
+	private void ShowPauseSettings(bool show)
+	{
+		if (_pauseMainPanel     != null) _pauseMainPanel.Visible     = !show;
+		if (_pauseSettingsPanel != null) _pauseSettingsPanel.Visible = show;
+		if (!show) return;
+
+		RefreshPauseAimButtons();
+		if (_pauseVolumeSlider != null && SettingsManager.Instance != null)
+			_pauseVolumeSlider.SetValueNoSignal(SettingsManager.Instance.SfxVolume);
+	}
+
+	// Aim-mode switcher mirrored from the Settings screen so it can be changed mid-run.
+	private void BuildPauseAimControls(VBoxContainer parent)
+	{
+		var label = new Label
+		{
+			Text                = "Aim Mode",
+			HorizontalAlignment = HorizontalAlignment.Center,
+		};
+		label.AddThemeFontSizeOverride("font_size", 16);
+		parent.AddChild(label);
+
+		var row = new HBoxContainer();
+		row.AddThemeConstantOverride("separation", 6);
+		parent.AddChild(row);
+
+		bool isCoop = SettingsManager.Instance?.GameMode == GameMode.LocalCoop;
+
+		foreach (var mode in new[] { AimMode.Movement, AimMode.Mouse, AimMode.AutoAim })
+		{
+			var btn = new Button
+			{
+				Text                = mode switch
+				{
+					AimMode.Mouse   => "Mouse",
+					AimMode.AutoAim => "Auto",
+					_               => "Move",
+				},
+				ToggleMode          = true,
+				CustomMinimumSize   = new Vector2(0, 38),
+				SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+				// Mouse aim needs a single cursor, so it stays unavailable in local co-op.
+				Disabled            = isCoop && mode == AimMode.Mouse,
+			};
+			btn.AddThemeFontSizeOverride("font_size", 15);
+
+			var captured = mode;
+			btn.Pressed += () =>
+			{
+				if (SettingsManager.Instance == null) return;
+				SettingsManager.Instance.AimMode = captured;
+				SettingsManager.Instance.SaveSettings();
+				RefreshPauseAimButtons();
+			};
+
+			_aimButtons[mode] = btn;
+			row.AddChild(btn);
+		}
+
+		RefreshPauseAimButtons();
+	}
+
+	private void BuildPauseVolumeControl(VBoxContainer parent)
+	{
+		var label = new Label
+		{
+			Text                = "Sound Effects",
+			HorizontalAlignment = HorizontalAlignment.Center,
+		};
+		label.AddThemeFontSizeOverride("font_size", 16);
+		parent.AddChild(label);
+
+		var row = new HBoxContainer { CustomMinimumSize = new Vector2(0, 38) };
+		parent.AddChild(row);
+
+		var slider = new HSlider
+		{
+			MinValue            = 0,
+			MaxValue            = 1,
+			Step                = 0.05,
+			Value               = SettingsManager.Instance?.SfxVolume ?? 0.8f,
+			SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+			SizeFlagsVertical   = Control.SizeFlags.ShrinkCenter,
+		};
+		row.AddChild(slider);
+
+		var readout = new Label
+		{
+			CustomMinimumSize = new Vector2(56, 0),
+			VerticalAlignment = VerticalAlignment.Center,
+		};
+		readout.AddThemeFontSizeOverride("font_size", 14);
+		row.AddChild(readout);
+
+		void Refresh(double v) => readout.Text = v <= 0.001 ? "Muted" : $"{Mathf.RoundToInt((float)v * 100)}%";
+		Refresh(slider.Value);
+
+		slider.ValueChanged += v =>
+		{
+			if (SettingsManager.Instance == null) return;
+			SettingsManager.Instance.SfxVolume = (float)v;
+			SettingsManager.Instance.SaveSettings();
+			AudioManager.Instance?.ApplyVolume();
+			Refresh(v);
+		};
+
+		_pauseVolumeSlider = slider;
+	}
+
+	private void RefreshPauseAimButtons()
+	{
+		var current = SettingsManager.Instance?.AimMode ?? AimMode.Movement;
+		foreach (var (mode, btn) in _aimButtons)
+			if (IsInstanceValid(btn)) btn.ButtonPressed = mode == current;
 	}
 
 	// ── Game over screen ──────────────────────────────────────────────────────
@@ -431,11 +625,17 @@ public partial class HUD : CanvasLayer
 	public void SetPauseOverlayVisible(bool visible)
 	{
 		if (_pauseOverlay != null) _pauseOverlay.Visible = visible;
+		// Always reopen on the main page rather than wherever the last session left off.
+		ShowPauseSettings(false);
+		if (!visible) return;
+		// Refresh on open: the wave may have advanced and aim mode can change elsewhere.
+		if (_pauseWaveLabel != null) _pauseWaveLabel.Text = $"Wave {_currentWave}";
 	}
 
 	public void ShowGameOver(int score, int wave)
 	{
 		IsGameOver = true;
+		AudioManager.Instance?.Play(AudioManager.GameOver);
 		if (_goScoreLabel != null) _goScoreLabel.Text = $"Score: {score}";
 		if (_goWaveLabel  != null) _goWaveLabel.Text  = $"Wave reached: {wave}";
 		if (_gameOverOverlay != null) _gameOverOverlay.Visible = true;
@@ -445,7 +645,38 @@ public partial class HUD : CanvasLayer
 
 	private void OnWaveStarted(int wave)
 	{
-		if (_waveLabel != null) _waveLabel.Text = $"Wave {wave}";
+		_currentWave = wave;
+		if (_pauseWaveLabel != null) _pauseWaveLabel.Text = $"Wave {wave}";
+		ShowWaveAnnouncement(wave);
+		AudioManager.Instance?.Play(AudioManager.WaveStart);
+	}
+
+	// Punchy zoom-in banner: overshoots past full size, settles, holds, then fades out.
+	private void ShowWaveAnnouncement(int wave)
+	{
+		if (_waveAnnounce == null) return;
+
+		// Restart cleanly if waves come faster than the animation.
+		if (_waveTween != null && _waveTween.IsValid()) _waveTween.Kill();
+
+		_waveAnnounce.Text     = $"WAVE {wave}";
+		_waveAnnounce.Visible  = true;
+		_waveAnnounce.Modulate = Colors.White;
+		// Label is full-rect, so the screen centre is its centre. Taken from the viewport
+		// rather than Size, which is still zero before the first layout pass.
+		_waveAnnounce.PivotOffset = GetViewport().GetVisibleRect().Size / 2f;
+		_waveAnnounce.Scale       = new Vector2(0.3f, 0.3f);
+
+		_waveTween = CreateTween();
+		_waveTween.TweenProperty(_waveAnnounce, "scale", new Vector2(1.15f, 1.15f), 0.32)
+				  .SetTrans(Tween.TransitionType.Back).SetEase(Tween.EaseType.Out);
+		_waveTween.TweenProperty(_waveAnnounce, "scale", Vector2.One, 0.12);
+		_waveTween.TweenInterval(0.85);
+		_waveTween.TweenProperty(_waveAnnounce, "modulate:a", 0f, 0.45);
+		_waveTween.TweenCallback(Callable.From(() =>
+		{
+			if (IsInstanceValid(_waveAnnounce)) _waveAnnounce.Visible = false;
+		}));
 	}
 
 	private void OnEnemiesChanged(int count)

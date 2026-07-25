@@ -22,7 +22,7 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
     private float               _attackTimer;
     private float               _shootTimer;
     private Vector2             _knockback;
-    private ColorRect?          _visual;
+    private Sprite2D?           _visual;
     private ColorRect?          _healthFill;
     private bool                _isHost;
     private Node?               _projectileContainer;
@@ -39,8 +39,6 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
     private Barrel?              _targetBarrel;
     private float                _barrelAttackTimer;
     private const float          BarrelAttackRange = 40f;
-
-    private static readonly Color DemonColor = new(0.85f, 0.1f, 0.1f);
 
     public void SetProjectileContainer(Node container) => _projectileContainer = container;
 
@@ -156,7 +154,11 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
         }
         _prevPosition = GlobalPosition;
 
-        Rotation = (_targetBarrel != null ? navTarget - GlobalPosition : dir).Angle() + Mathf.Pi / 2f;
+        // Fixed front-facing pose — mirror horizontally instead of rotating the body.
+        Vector2 faceDir = _targetBarrel != null ? navTarget - GlobalPosition : dir;
+        if (_visual != null && Mathf.Abs(faceDir.X) > 5f)
+            _visual.FlipH = faceDir.X < 0f;
+
         _attackTimer -= (float)delta;
         _shootTimer  -= (float)delta;
 
@@ -245,11 +247,14 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
     private void DieRpc()
     {
         _currentHealth = 0f;
-        if (_visual != null) _visual.Color = Colors.DarkGray;
+        if (_visual != null) _visual.Modulate = Colors.DarkGray;
         SetPhysicsProcess(false);
         ScoreManager.Instance?.RegisterKill(25);
         GameManager.Instance?.OnEnemyKilled();
+        BloodSystem.Instance?.Pool(GlobalPosition, 1.35f);
+        AudioManager.Instance?.Play(AudioManager.EnemyDeath, 0.9f, 0.06f);
         DropAmmoPack();
+        HealthPack.TryDrop(GetParent(), GlobalPosition, 0.08f);
         CallDeferred(Node.MethodName.QueueFree);
     }
 
@@ -276,26 +281,30 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
 
     private void BuildVisual()
     {
-        _visual = new ColorRect
+        // Sprite's native canvas is 480x580 with the character's visual center around
+        // (239, 285) — offset math below keeps that point pinned to the node's origin.
+        const float scale = 0.085f;
+        _visual = new Sprite2D
         {
-            Color    = DemonColor,
-            Size     = new Vector2(28, 28),
-            Position = new Vector2(-14, -14)
+            Texture  = ResourceLoader.Load<Texture2D>("res://Assets/Sprites/Enemies/demonio.png"),
+            Centered = false,
+            Scale    = new Vector2(scale, scale),
+            Position = new Vector2(-239f * scale, -285.5f * scale),
         };
         AddChild(_visual);
 
         AddChild(new ColorRect
         {
             Color    = new Color(0.2f, 0.2f, 0.2f),
-            Size     = new Vector2(32, 4),
-            Position = new Vector2(-16, -24)
+            Size     = new Vector2(34, 4),
+            Position = new Vector2(-17, -31)
         });
 
         _healthFill = new ColorRect
         {
             Color    = new Color(0.9f, 0.1f, 0.1f),
-            Size     = new Vector2(32, 4),
-            Position = new Vector2(-16, -24)
+            Size     = new Vector2(34, 4),
+            Position = new Vector2(-17, -31)
         };
         AddChild(_healthFill);
 
@@ -305,6 +314,6 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
     private void UpdateHealthBar()
     {
         if (_healthFill == null) return;
-        _healthFill.Size = new Vector2(32f * (_currentHealth / MaxHealth), 4f);
+        _healthFill.Size = new Vector2(34f * (_currentHealth / MaxHealth), 4f);
     }
 }

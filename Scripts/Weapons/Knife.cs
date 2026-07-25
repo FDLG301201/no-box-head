@@ -11,7 +11,10 @@ public partial class Knife : Weapon
     private const float BaseDamage      = 7.5f;
     private const float DamagePerTen    = 2.5f;
     private const float MaxDamage       = 22.5f; // < shotgun pellet (25)
-    private const float MeleeRange      = 55f;
+    // Measured to the enemy's centre, so it exceeds the swing fan's visual reach (62px in
+    // Player.ShowKnifeSwing) by roughly an enemy body radius — an enemy the arc visibly
+    // overlaps is now always in range.
+    private const float MeleeRange      = 73f;
     private const float KnockbackImpulse = 80f;
     // Dot-product threshold: only hits enemies roughly in front (>30° cone either side).
     private const float FacingThreshold = 0.3f;
@@ -36,6 +39,7 @@ public partial class Knife : Weapon
     {
         if (_fireCooldown > 0f) return;
         _fireCooldown = FireRate;
+        AudioManager.Instance?.Play(AudioManager.Knife, 0.8f, 0.1f);
         PerformMeleeAttack(origin, direction);
     }
 
@@ -57,6 +61,7 @@ public partial class Knife : Weapon
             if (direction.Dot(toEnemy.Normalized()) < FacingThreshold) continue;
 
             d.TakeDamage(damage);
+            BloodSystem.Instance?.Splatter(n2d.GlobalPosition, direction, 0.9f);
             if (node is IKnockbackable kb)
                 kb.ApplyKnockback(direction * KnockbackImpulse);
         }

@@ -11,6 +11,8 @@ namespace NoBoxHead;
 public partial class GrenadeLauncher : Weapon
 {
     public override string WeaponName => "Grenade";
+    // The throw itself is just a whoosh; the payoff is the explosion in GrenadeProjectile.
+    protected override string FireSound => AudioManager.Knife;
 
     private PackedScene? _grenadeScene;
 
@@ -19,10 +21,10 @@ public partial class GrenadeLauncher : Weapon
         FireRate         = 0.6f;
         MagazineSize     = 1;
         ReloadTime       = 2.5f;
-        BulletDamage     = 90f;
+        BulletDamage     = 300f;
         StartReserveAmmo = 1; // 1 loaded + 1 reserve = 2 total throws to start
         MaxReserveAmmo   = 2; // ammo packs can stock up to 1 loaded + 2 reserve = 3
-        BulletKnockback  = 260f;
+        BulletKnockback  = 420f;
         base._Ready();
 
         _grenadeScene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/Grenade.tscn");

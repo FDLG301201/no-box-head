@@ -56,7 +56,10 @@ public partial class Bullet : Area2D
     private void OnBodyEntered(Node body)
     {
         if (body is IDamageable damageable && damageable.IsAlive)
+        {
             damageable.TakeDamage(ComputeDamage());
+            BloodSystem.Instance?.Splatter(GlobalPosition, _direction);
+        }
         if (body is IKnockbackable kb)
             kb.ApplyKnockback(_direction * KnockbackForce);
         QueueFree();

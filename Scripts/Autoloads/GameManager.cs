@@ -62,7 +62,8 @@ public partial class GameManager : Node
         if (EnemiesRemaining <= 0)
         {
             EmitSignal(SignalName.WaveCompleted, CurrentWave);
-            GetTree().CreateTimer(3.0).Timeout += StartNextWave;
+            // processAlways:false so the inter-wave countdown halts while paused.
+            GetTree().CreateTimer(3.0, false).Timeout += StartNextWave;
         }
     }
 

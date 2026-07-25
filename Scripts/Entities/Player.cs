@@ -26,8 +26,25 @@ public partial class Player : CharacterBody2D
         new(1f,   0.9f, 0.2f),
     };
 
-    private ColorRect?        _visual;
+    private Sprite2D?         _visual;
+    private Sprite2D?         _weaponVisual;
     private ColorRect?        _healthFill;
+    private Color             _spriteTint = Colors.White;
+
+    // WeaponName → held-weapon sprite. Names that aren't listed (e.g. a future weapon)
+    // simply show no sprite rather than erroring.
+    private static readonly Dictionary<string, string> WeaponSprites = new()
+    {
+        { "Pistol",      "res://Assets/Sprites/Weapons/pistol.png"     },
+        { "Shotgun",     "res://Assets/Sprites/Weapons/shotgun.png"    },
+        { "Machine Gun", "res://Assets/Sprites/Weapons/machinegun.png" },
+        { "Knife",       "res://Assets/Sprites/Weapons/knife.png"      },
+        { "Grenade",     "res://Assets/Sprites/Weapons/grenade.png"    },
+        { "Barrel",      "res://Assets/Sprites/Weapons/barrel.png"     },
+    };
+    // Where the weapon sits relative to the body when facing right (mirrored when facing left).
+    private static readonly Vector2 WeaponOffset = new(11f, 4f);
+    private const float WeaponScale = 0.5f;
     private readonly List<Weapon> _weapons = new();
     private int               _currentWeaponIndex;
     private int               _previousWeaponIndex;
@@ -39,7 +56,6 @@ public partial class Player : CharacterBody2D
     // Tracks KP_0 held state for P2 (physical key check, Num Lock independent).
     private bool              _p2ShootHeld;
 
-    private const float RotationSpeed  = 14f;
     private const float AutoAimRange   = 700f;
 
     public override void _Ready()
@@ -60,17 +76,19 @@ public partial class Player : CharacterBody2D
         if (!_isLocalPlayer) return;
         if (PlayerIndex == 0)
         {
-            if (ev.IsActionPressed("switch_weapon")) SwitchToNextWeapon();
-            if (ev.IsActionPressed("knife"))         ToggleKnife();
+            if (ev.IsActionPressed("switch_weapon"))      SwitchToNextWeapon();
+            if (ev.IsActionPressed("switch_weapon_prev")) SwitchToPreviousWeapon();
+            if (ev.IsActionPressed("knife"))              ToggleKnife();
         }
         else if (ev is InputEventKey { Echo: false } key)
         {
             // P2 uses direct physical key checks so numpad works regardless of Num Lock / action mapping.
             switch (key.PhysicalKeycode)
             {
-                case Key.Kp0: _p2ShootHeld = key.Pressed;            break;
-                case Key.Kp1: if (key.Pressed) SwitchToNextWeapon(); break;
-                case Key.Kp2: if (key.Pressed) ToggleKnife();        break;
+                case Key.Kp0: _p2ShootHeld = key.Pressed;                break;
+                case Key.Kp1: if (key.Pressed) SwitchToNextWeapon();     break;
+                case Key.Kp2: if (key.Pressed) ToggleKnife();            break;
+                case Key.Kp3: if (key.Pressed) SwitchToPreviousWeapon(); break;
             }
         }
     }
@@ -82,6 +100,7 @@ public partial class Player : CharacterBody2D
         var moveDir = GetMoveInput();
         Velocity = moveDir * MoveSpeed;
         MoveAndSlide();
+        ClampToArena();
         UpdateAnimation(moveDir);
 
         if (_currentWeapon != null)
@@ -89,8 +108,10 @@ public partial class Player : CharacterBody2D
             var aimDir = GetAimDirection(moveDir);
             if (aimDir.LengthSquared() > 0.01f)
             {
-                float targetAngle = aimDir.Angle() + Mathf.Pi / 2f;
-                Rotation = Mathf.LerpAngle(Rotation, targetAngle, (float)delta * RotationSpeed);
+                // Fixed front-facing pose (no rotation frames) — mirror horizontally to hint
+                // at aim direction instead of rotating the whole body, same as enemies.
+                if (Mathf.Abs(aimDir.X) > 0.05f)
+                    FaceDirection(aimDir.X < 0f);
 
                 if (ShouldShoot())
                 {
@@ -111,6 +132,17 @@ public partial class Player : CharacterBody2D
 
         if (Multiplayer.HasMultiplayerPeer())
             Rpc(MethodName.SyncState, GlobalPosition, Rotation);
+    }
+
+    // Hard stop at the arena edges. The perimeter walls already block normal movement, but
+    // a clamp guarantees a player can never end up outside the playfield (e.g. pushed out by
+    // knockback or a physics tunnel at high speed).
+    private void ClampToArena()
+    {
+        const float radius = 12f; // matches the collision circle below
+        GlobalPosition = new Vector2(
+            Mathf.Clamp(GlobalPosition.X, radius, ArenaLayouts.ArenaW - radius),
+            Mathf.Clamp(GlobalPosition.Y, radius, ArenaLayouts.ArenaH - radius));
     }
 
     // ── Input helpers ─────────────────────────────────────────────────────────
@@ -194,6 +226,7 @@ public partial class Player : CharacterBody2D
         {
             _currentWeaponIndex = 0;
             _currentWeapon      = weapon;
+            UpdateWeaponVisual();
         }
     }
 
@@ -202,6 +235,14 @@ public partial class Player : CharacterBody2D
         if (_weapons.Count <= 1) return;
         _previousWeaponIndex = _currentWeaponIndex;
         _currentWeaponIndex  = (_currentWeaponIndex + 1) % _weapons.Count;
+        ActivateWeapon(_currentWeaponIndex);
+    }
+
+    public void SwitchToPreviousWeapon()
+    {
+        if (_weapons.Count <= 1) return;
+        _previousWeaponIndex = _currentWeaponIndex;
+        _currentWeaponIndex  = (_currentWeaponIndex - 1 + _weapons.Count) % _weapons.Count;
         ActivateWeapon(_currentWeaponIndex);
     }
 
@@ -226,6 +267,7 @@ public partial class Player : CharacterBody2D
     {
         _currentWeaponIndex = index;
         _currentWeapon      = _weapons[_currentWeaponIndex];
+        UpdateWeaponVisual();
         EmitSignal(SignalName.WeaponChanged, _currentWeapon.WeaponName);
         EmitSignal(SignalName.AmmoChanged,   _currentWeapon.CurrentAmmo, _currentWeapon.ReserveAmmo);
         EmitSignal(SignalName.Reloading,     _currentWeapon.IsReloading);
@@ -253,6 +295,26 @@ public partial class Player : CharacterBody2D
         target?.AddReserveAmmo(amount);
     }
 
+    // ── Healing ───────────────────────────────────────────────────────────────
+
+    /// <summary>Restores health up to MaxHealth. Ignored when dead. Returns false if already full.</summary>
+    public bool Heal(float amount)
+    {
+        if (!IsAlive || CurrentHealth >= MaxHealth) return false;
+        CurrentHealth = Mathf.Min(MaxHealth, CurrentHealth + amount);
+        UpdateHealthBar();
+        EmitSignal(SignalName.HealthChanged, CurrentHealth, MaxHealth);
+        FlashHeal();
+        return true;
+    }
+
+    private async void FlashHeal()
+    {
+        Modulate = new Color(0.5f, 1f, 0.5f);
+        await ToSignal(GetTree().CreateTimer(0.12, false), SceneTreeTimer.SignalName.Timeout);
+        if (IsInstanceValid(this)) Modulate = Colors.White;
+    }
+
     // ── Knife swing animation ─────────────────────────────────────────────────
 
     private void ShowKnifeSwing(Vector2 dir)
@@ -260,7 +322,7 @@ public partial class Player : CharacterBody2D
         if (!IsInstanceValid(this) || GetParent() == null) return;
 
         const float halfSpread = 0.44f; // ~25° in radians
-        const float range      = 54f;
+        const float range      = 62f;   // keep in sync with Knife.MeleeRange
         const int   segments   = 6;
 
         float baseAngle = dir.Angle();
@@ -291,13 +353,30 @@ public partial class Player : CharacterBody2D
 
     private void BuildPlaceholderVisual()
     {
-        _visual = new ColorRect
+        // Sprite's native canvas is 480x580 with the character's visual center around
+        // (239, 301) — offset math below keeps that point pinned to the node's origin
+        // (where the collision circle and pathing both live) regardless of scale.
+        const float scale = 0.078f;
+        _spriteTint = PlayerIndex == 0 ? Colors.White : new Color(1f, 0.55f, 0.55f);
+        _visual = new Sprite2D
         {
-            Color    = PlayerColors[PlayerIndex % PlayerColors.Length],
-            Size     = new Vector2(24, 24),
-            Position = new Vector2(-12, -12)
+            Texture  = ResourceLoader.Load<Texture2D>("res://Assets/Sprites/Player/jugador.png"),
+            Centered = false,
+            Scale    = new Vector2(scale, scale),
+            Position = new Vector2(-239.5f * scale, -301.5f * scale),
+            Modulate = _spriteTint,
         };
         AddChild(_visual);
+
+        // Held-weapon sprite, drawn on top of the body. Centered so it mirrors cleanly.
+        _weaponVisual = new Sprite2D
+        {
+            Centered = true,
+            Scale    = new Vector2(WeaponScale, WeaponScale),
+            Position = WeaponOffset,
+            ZIndex   = 1,
+        };
+        AddChild(_weaponVisual);
 
         // Player identity label — always shown in co-op, useful for distinguishing players.
         if (SettingsManager.Instance?.GameMode == GameMode.LocalCoop)
@@ -305,7 +384,7 @@ public partial class Player : CharacterBody2D
             var nameLabel = new Label
             {
                 Text     = $"P{PlayerIndex + 1}",
-                Position = new Vector2(-8, -34),
+                Position = new Vector2(-8, -40),
             };
             nameLabel.AddThemeFontSizeOverride("font_size", 12);
             nameLabel.AddThemeColorOverride("font_color", PlayerColors[PlayerIndex % PlayerColors.Length]);
@@ -315,15 +394,15 @@ public partial class Player : CharacterBody2D
         AddChild(new ColorRect
         {
             Color    = new Color(0.2f, 0.2f, 0.2f),
-            Size     = new Vector2(28, 4),
-            Position = new Vector2(-14, -20)
+            Size     = new Vector2(32, 4),
+            Position = new Vector2(-16, -27)
         });
 
         _healthFill = new ColorRect
         {
             Color    = new Color(0.2f, 0.9f, 0.2f),
-            Size     = new Vector2(28, 4),
-            Position = new Vector2(-14, -20)
+            Size     = new Vector2(32, 4),
+            Position = new Vector2(-16, -27)
         };
         AddChild(_healthFill);
 
@@ -333,13 +412,39 @@ public partial class Player : CharacterBody2D
     private void UpdateAnimation(Vector2 moveDir)
     {
         if (_visual == null) return;
-        _visual.Color = _visual.Color with { A = moveDir.LengthSquared() > 0.01f ? 0.85f : 1f };
+        _visual.Modulate = _spriteTint with { A = moveDir.LengthSquared() > 0.01f ? 0.85f : 1f };
+    }
+
+    // Mirrors the body and moves the weapon to the correct side so it always reads as held.
+    private void FaceDirection(bool faceLeft)
+    {
+        if (_visual != null) _visual.FlipH = faceLeft;
+        if (_weaponVisual != null)
+        {
+            _weaponVisual.FlipH   = faceLeft;
+            _weaponVisual.Position = WeaponOffset with { X = faceLeft ? -WeaponOffset.X : WeaponOffset.X };
+        }
+    }
+
+    // Swaps the held-weapon texture to match the equipped weapon. Hidden if it has no sprite.
+    private void UpdateWeaponVisual()
+    {
+        if (_weaponVisual == null) return;
+        if (_currentWeapon != null && WeaponSprites.TryGetValue(_currentWeapon.WeaponName, out var path))
+        {
+            _weaponVisual.Texture = ResourceLoader.Load<Texture2D>(path);
+            _weaponVisual.Visible = true;
+        }
+        else
+        {
+            _weaponVisual.Visible = false;
+        }
     }
 
     private void UpdateHealthBar()
     {
         if (_healthFill == null) return;
-        _healthFill.Size = new Vector2(28f * (CurrentHealth / MaxHealth), 4f);
+        _healthFill.Size = new Vector2(32f * (CurrentHealth / MaxHealth), 4f);
     }
 
     // ── Revive ────────────────────────────────────────────────────────────────
@@ -350,7 +455,7 @@ public partial class Player : CharacterBody2D
         CurrentHealth  = MaxHealth;
         GlobalPosition = spawnPosition;
         Modulate       = Colors.White;
-        if (_visual != null) _visual.Color = PlayerColors[PlayerIndex % PlayerColors.Length];
+        if (_visual != null) _visual.Modulate = _spriteTint;
         UpdateHealthBar();
         SetPhysicsProcess(true);
         EmitSignal(SignalName.HealthChanged, CurrentHealth, MaxHealth);
@@ -365,6 +470,8 @@ public partial class Player : CharacterBody2D
         CurrentHealth = Mathf.Max(0f, CurrentHealth - amount);
         UpdateHealthBar();
         FlashDamage();
+        BloodSystem.Instance?.Splatter(GlobalPosition, -_lastAimDir, 0.8f);
+        AudioManager.Instance?.Play(AudioManager.PlayerHurt, 0.9f, 0.08f);
         EmitSignal(SignalName.HealthChanged, CurrentHealth, MaxHealth);
         if (CurrentHealth <= 0f)
         {
@@ -384,7 +491,8 @@ public partial class Player : CharacterBody2D
     private void DieRpc()
     {
         CurrentHealth = 0f;
-        if (_visual != null) _visual.Color = new Color(0.3f, 0.3f, 0.3f);
+        BloodSystem.Instance?.Pool(GlobalPosition, 1.2f);
+        if (_visual != null) _visual.Modulate = new Color(0.35f, 0.35f, 0.35f);
         SetPhysicsProcess(false);
         GameManager.Instance?.OnPlayerDied(this);
     }

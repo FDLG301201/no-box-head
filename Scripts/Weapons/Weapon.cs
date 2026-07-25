@@ -23,6 +23,9 @@ public abstract partial class Weapon : Node
     // Human-readable name shown in HUD.
     public virtual string WeaponName => GetType().Name;
 
+    // Sound played on a successful shot; subclasses override with their own.
+    protected virtual string FireSound => AudioManager.Pistol;
+
     public int  CurrentAmmo { get; protected set; }
     public int  ReserveAmmo { get; private set; }
     public bool IsReloading { get; private set; }
@@ -57,6 +60,7 @@ public abstract partial class Weapon : Node
         }
 
         SpawnBullet(origin, direction);
+        AudioManager.Instance?.Play(FireSound, 1f, 0.08f);
         CurrentAmmo--;
         _fireCooldown = FireRate;
         EmitSignal(SignalName.AmmoChanged, CurrentAmmo, ReserveAmmo);
@@ -86,7 +90,8 @@ public abstract partial class Weapon : Node
     {
         IsReloading = true;
         EmitSignal(SignalName.Reloading, true);
-        await ToSignal(GetTree().CreateTimer(ReloadTime), SceneTreeTimer.SignalName.Timeout);
+        // processAlways:false so reloads don't tick down while the game is paused.
+        await ToSignal(GetTree().CreateTimer(ReloadTime, false), SceneTreeTimer.SignalName.Timeout);
         int needed  = MagazineSize - CurrentAmmo;
         int take    = Mathf.Min(needed, ReserveAmmo);
         CurrentAmmo += take;

@@ -8,6 +8,7 @@ namespace NoBoxHead;
 public partial class MachineGun : Weapon
 {
     public override string WeaponName => "Machine Gun";
+    protected override string FireSound => AudioManager.MachineGun;
 
     public override void _Ready()
     {
