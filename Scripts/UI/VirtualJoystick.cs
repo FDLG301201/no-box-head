@@ -19,15 +19,23 @@ public partial class VirtualJoystick : Control
     private Vector2 _touchOrigin; // screen-space anchor where touch began
     private ColorRect? _base;
     private ColorRect? _thumb;
+    private Vector2 _center;
 
     public override void _Ready()
     {
-        // Base circle (background).
+        // Own the control's rect exactly (rather than trusting whatever custom_minimum_size
+        // the scene declares) so GetGlobalRect() — used below for touch hit-testing — lines
+        // up perfectly with the circle actually drawn. A caller places this control by its
+        // top-left corner via anchors/Position, same as any other Control.
+        Size   = Vector2.One * Radius * 2f;
+        _center = Size / 2f;
+
+        // Base circle (background), centred in the control's own rect.
         _base = new ColorRect
         {
-            Color = new Color(1f, 1f, 1f, 0.18f),
-            Size = Vector2.One * Radius * 2f,
-            Position = Vector2.One * (-Radius) // centered on control's (0,0)
+            Color    = new Color(1f, 1f, 1f, 0.18f),
+            Size     = Vector2.One * Radius * 2f,
+            Position = _center - Vector2.One * Radius,
         };
         AddChild(_base);
 
@@ -35,9 +43,9 @@ public partial class VirtualJoystick : Control
         float thumbR = Radius * 0.55f;
         _thumb = new ColorRect
         {
-            Color = new Color(1f, 1f, 1f, 0.45f),
-            Size = Vector2.One * thumbR,
-            Position = Vector2.One * (-thumbR / 2f)
+            Color    = new Color(1f, 1f, 1f, 0.45f),
+            Size     = Vector2.One * thumbR,
+            Position = _center - Vector2.One * (thumbR / 2f),
         };
         AddChild(_thumb);
     }
@@ -94,7 +102,7 @@ public partial class VirtualJoystick : Control
         if (_thumb != null)
         {
             float thumbR = Radius * 0.55f;
-            _thumb.Position = dir * clamped + Vector2.One * (-thumbR / 2f);
+            _thumb.Position = _center + dir * clamped - Vector2.One * (thumbR / 2f);
         }
 
         InputVector = len > DeadZone ? dir : Vector2.Zero;
@@ -108,7 +116,7 @@ public partial class VirtualJoystick : Control
         if (_thumb != null)
         {
             float thumbR = Radius * 0.55f;
-            _thumb.Position = Vector2.One * (-thumbR / 2f);
+            _thumb.Position = _center - Vector2.One * (thumbR / 2f);
         }
     }
 }

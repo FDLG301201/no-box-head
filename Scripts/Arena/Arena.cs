@@ -433,6 +433,7 @@ public partial class Arena : Node2D
 				{
 					_hud.SwitchWeaponCallback     = player.SwitchToNextWeapon;
 					_hud.SwitchWeaponPrevCallback = player.SwitchToPreviousWeapon;
+					_hud.KnifeCallback            = player.ToggleKnife;
 					_hud.BindToPlayer(player, pistol);
 				}
 			}
@@ -444,6 +445,12 @@ public partial class Arena : Node2D
 				player.HealthChanged += (cur, max)  => _hud?.UpdateHealthP2(cur, max);
 				player.WeaponChanged += name         => _hud?.UpdateWeaponP2(name);
 
+				if (_hud != null)
+				{
+					_hud.SwitchWeaponCallbackP2     = player.SwitchToNextWeapon;
+					_hud.SwitchWeaponPrevCallbackP2 = player.SwitchToPreviousWeapon;
+					_hud.KnifeCallbackP2            = player.ToggleKnife;
+				}
 				_hud?.BindToPlayerP2(player, pistol);
 			}
 
@@ -472,10 +479,26 @@ public partial class Arena : Node2D
 				};
 			}
 
-			// Joysticks disabled during development — call SetupLocalJoysticks(player) to re-enable.
+			// Touch controls only: on desktop/editor builds Player reads WASD/mouse directly
+			// and these are never created, so no virtual joystick appears outside mobile.
+			if (OS.HasFeature("mobile"))
+				SetupLocalJoysticks(player);
 		}
 
 		CallDeferred(MethodName.RefreshCamera);
+	}
+
+	private void SetupLocalJoysticks(Player player)
+	{
+		var joystickScene = ResourceLoader.Load<PackedScene>("res://Scenes/UI/VirtualJoystick.tscn");
+		if (joystickScene == null || _hud == null) return;
+
+		var move = joystickScene.Instantiate<VirtualJoystick>();
+		var aim  = joystickScene.Instantiate<VirtualJoystick>();
+		player.SetJoysticks(move, aim);
+
+		bool isCoop = SettingsManager.Instance?.GameMode == GameMode.LocalCoop;
+		_hud.AddJoysticks(move, aim, player.PlayerIndex, isCoop);
 	}
 
 	private void RefreshCamera()

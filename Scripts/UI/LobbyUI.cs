@@ -15,6 +15,7 @@ public partial class LobbyUI : Control
     private Label? _pinLabel;
     private VBoxContainer? _gameList;
     private LineEdit? _pinInput;
+    private LineEdit? _ipInput;
     private Button? _startBtn;
     private readonly List<string> _connectedPeerLabels = new();
     private int _connectedCount = 1; // host counts as 1
@@ -136,6 +137,33 @@ public partial class LobbyUI : Control
         joinBtn.AddThemeFontSizeOverride("font_size", 20);
         joinBtn.Pressed += OnJoinByPinPressed;
         hbox.AddChild(joinBtn);
+
+        // PIN join relies on the LAN broadcast above and can't reach a host on another
+        // network. Direct IP connect is the fallback for playing over the internet — via
+        // port forwarding on the host's router, or a virtual-LAN tool like Radmin VPN/Hamachi.
+        root.AddChild(Spacer(16));
+        var divider = new Label { Text = "— or connect directly —", HorizontalAlignment = HorizontalAlignment.Center };
+        divider.AddThemeColorOverride("font_color", new Color(0.6f, 0.6f, 0.6f));
+        divider.AddThemeFontSizeOverride("font_size", 13);
+        root.AddChild(divider);
+        root.AddChild(Spacer(8));
+
+        var ipRow = new HBoxContainer();
+        root.AddChild(ipRow);
+
+        _ipInput = new LineEdit
+        {
+            PlaceholderText = "Host IP (e.g. 25.12.34.56)",
+            CustomMinimumSize = new Vector2(250, 50),
+        };
+        _ipInput.AddThemeFontSizeOverride("font_size", 18);
+        _ipInput.TextSubmitted += _ => OnConnectByIpPressed();
+        ipRow.AddChild(_ipInput);
+
+        var connectBtn = new Button { Text = "Connect", CustomMinimumSize = new Vector2(140, 50) };
+        connectBtn.AddThemeFontSizeOverride("font_size", 18);
+        connectBtn.Pressed += OnConnectByIpPressed;
+        ipRow.AddChild(connectBtn);
     }
 
     // ── Network ───────────────────────────────────────────────────────────────
@@ -212,6 +240,27 @@ public partial class LobbyUI : Control
         var err = NetworkManager.Instance.JoinByPin(pin);
         if (err != Error.Ok && _statusLabel != null)
             _statusLabel.Text = $"Could not find host with PIN {pin}.";
+    }
+
+    private void OnConnectByIpPressed()
+    {
+        string raw = _ipInput?.Text.Trim() ?? "";
+        if (raw.Length == 0) return;
+
+        // Accept "ip" or "ip:port" so a non-default forwarded port also works.
+        string ip = raw;
+        int port = NetworkManager.GamePort;
+        int colon = raw.LastIndexOf(':');
+        if (colon > 0 && int.TryParse(raw[(colon + 1)..], out int parsedPort))
+        {
+            ip = raw[..colon];
+            port = parsedPort;
+        }
+
+        if (_statusLabel != null) _statusLabel.Text = $"Connecting to {ip}:{port}…";
+        var err = NetworkManager.Instance.JoinServer(ip, port);
+        if (err != Error.Ok && _statusLabel != null)
+            _statusLabel.Text = $"Could not connect to {ip}:{port}.";
     }
 
     private void OnStartGamePressed()

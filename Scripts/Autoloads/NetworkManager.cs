@@ -22,7 +22,7 @@ public partial class NetworkManager : Node
 {
     public static NetworkManager Instance { get; private set; } = null!;
 
-    private const int GamePort = 7777;
+    public const int GamePort = 7777;
     private const int DiscoveryPort = 7778;
     private const string DiscoveryMagic = "NOBOXHEAD_V1";
 

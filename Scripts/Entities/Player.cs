@@ -246,7 +246,7 @@ public partial class Player : CharacterBody2D
         ActivateWeapon(_currentWeaponIndex);
     }
 
-    private void ToggleKnife()
+    public void ToggleKnife()
     {
         int knifeIdx = _weapons.FindIndex(w => w is Knife);
         if (knifeIdx < 0) return;

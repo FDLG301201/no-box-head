@@ -34,9 +34,19 @@ public partial class HUD : CanvasLayer
 
 	public bool IsGameOver { get; private set; }
 
+	// Generic feature-tag check: true on Android/iOS exports, false on desktop/editor —
+	// used to gate touch-only UI (virtual joysticks, on-screen action buttons) so a
+	// keyboard-and-mouse session never sees controls it doesn't need.
+	public static bool IsMobile => OS.HasFeature("mobile");
+
 	public System.Action? SwitchWeaponCallback     { get; set; }
 	public System.Action? SwitchWeaponPrevCallback { get; set; }
+	public System.Action? KnifeCallback            { get; set; }
 	public System.Action? PauseCallback            { get; set; }
+
+	public System.Action? SwitchWeaponCallbackP2     { get; set; }
+	public System.Action? SwitchWeaponPrevCallbackP2 { get; set; }
+	public System.Action? KnifeCallbackP2            { get; set; }
 
 	private float  _maxHealth   = 100f;
 	private int    _currentWave = 1;
@@ -108,21 +118,46 @@ public partial class HUD : CanvasLayer
 
 		var prevBtn = new Button
 		{
-			Text     = "[E] Prev",
+			Text     = IsMobile ? "Prev" : "[E] Prev",
 			Position = new Vector2(10, 96),
-			Size     = new Vector2(100, 28),
+			Size     = new Vector2(66, 28),
 		};
 		prevBtn.Pressed += () => SwitchWeaponPrevCallback?.Invoke();
 		AddChild(prevBtn);
 
 		var switchBtn = new Button
 		{
-			Text     = "[Q] Next",
-			Position = new Vector2(116, 96),
-			Size     = new Vector2(100, 28),
+			Text     = IsMobile ? "Next" : "[Q] Next",
+			Position = new Vector2(82, 96),
+			Size     = new Vector2(66, 28),
 		};
 		switchBtn.Pressed += () => SwitchWeaponCallback?.Invoke();
 		AddChild(switchBtn);
+
+		// Knife has a keyboard shortcut on desktop (V / numpad); touch has no keyboard at all,
+		// so it needs its own tappable button.
+		if (IsMobile)
+		{
+			var knifeBtn = new Button
+			{
+				Text     = "Knife",
+				Position = new Vector2(154, 96),
+				Size     = new Vector2(66, 28),
+			};
+			knifeBtn.Pressed += () => KnifeCallback?.Invoke();
+			AddChild(knifeBtn);
+
+			// Desktop opens pause via P/Escape; touch has no keyboard, so it needs a button.
+			var pauseBtn = new Button
+			{
+				Text                = "Pause",
+				AnchorLeft          = 1f, AnchorRight = 1f,
+				Position            = new Vector2(-70, 90),
+				Size                = new Vector2(60, 32),
+			};
+			pauseBtn.Pressed += () => { if (!IsGameOver) PauseCallback?.Invoke(); };
+			AddChild(pauseBtn);
+		}
 
 		// Wave banner: hidden by default, zooms in briefly whenever a wave starts.
 		// Full-rect so it can scale around the screen centre; ignores mouse input.
@@ -234,6 +269,22 @@ public partial class HUD : CanvasLayer
 		_weaponLabelP2.AddThemeColorOverride("font_color", new Color(0.85f, 0.85f, 0.85f));
 		_weaponLabelP2.AddThemeFontSizeOverride("font_size", 14);
 		panel.AddChild(_weaponLabelP2);
+
+		// P2 normally switches weapons via numpad, which doesn't exist on a touch device.
+		if (IsMobile)
+		{
+			var prevBtn = new Button { Text = "Prev", Position = new Vector2(10, 96), Size = new Vector2(66, 28) };
+			prevBtn.Pressed += () => SwitchWeaponPrevCallbackP2?.Invoke();
+			panel.AddChild(prevBtn);
+
+			var nextBtn = new Button { Text = "Next", Position = new Vector2(82, 96), Size = new Vector2(66, 28) };
+			nextBtn.Pressed += () => SwitchWeaponCallbackP2?.Invoke();
+			panel.AddChild(nextBtn);
+
+			var knifeBtn = new Button { Text = "Knife", Position = new Vector2(154, 96), Size = new Vector2(66, 28) };
+			knifeBtn.Pressed += () => KnifeCallbackP2?.Invoke();
+			panel.AddChild(knifeBtn);
+		}
 	}
 
 	// ── Pause menu ────────────────────────────────────────────────────────────
@@ -608,10 +659,35 @@ public partial class HUD : CanvasLayer
 		if (_weaponLabelP2 != null) _weaponLabelP2.Text = weaponName;
 	}
 
-	public void AddJoysticks(VirtualJoystick move, VirtualJoystick aim)
+	/// <summary>
+	/// Places a player's move/aim joysticks bottom-left/bottom-right of their share of the
+	/// screen — the full screen solo, or their half in local co-op (mirroring the split
+	/// viewport each already plays in).
+	/// </summary>
+	public void AddJoysticks(VirtualJoystick move, VirtualJoystick aim, int playerIndex, bool isCoop)
 	{
-		_joystickLayer?.AddChild(move);
-		_joystickLayer?.AddChild(aim);
+		if (_joystickLayer == null) return;
+
+		var half = new Control
+		{
+			AnchorLeft   = isCoop && playerIndex == 1 ? 0.5f : 0f,
+			AnchorRight  = isCoop && playerIndex == 0 ? 0.5f : 1f,
+			AnchorTop    = 0f, AnchorBottom = 1f,
+			MouseFilter  = Control.MouseFilterEnum.Ignore,
+		};
+		_joystickLayer.AddChild(half);
+
+		const float margin = 100f;
+		// VirtualJoystick now owns its rect exactly (Size = Radius*2), so it's placed like any
+		// other Control — by its top-left corner — with Radius subtracted to land the desired
+		// visual centre at (margin, -margin) from the anchored corner.
+		move.AnchorLeft = 0f; move.AnchorRight = 0f; move.AnchorTop = 1f; move.AnchorBottom = 1f;
+		move.Position   = new Vector2(margin - move.Radius, -margin - move.Radius);
+		half.AddChild(move);
+
+		aim.AnchorLeft = 1f; aim.AnchorRight = 1f; aim.AnchorTop = 1f; aim.AnchorBottom = 1f;
+		aim.Position   = new Vector2(-margin - aim.Radius, -margin - aim.Radius);
+		half.AddChild(aim);
 	}
 
 	// Called by the Resume button — goes through the same RPC path as the P key.
