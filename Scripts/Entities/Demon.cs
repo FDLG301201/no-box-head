@@ -118,6 +118,9 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
             Velocity = Vector2.Zero;
         }
 
+        // Yield to a player pushing through — see CrowdSeparation and Enemy.cs.
+        Velocity += CrowdSeparation.AwayFromPlayers(this, AttackRange);
+
         // Apply and decay knockback impulse (always, even while stationary).
         if (_knockback.LengthSquared() > 1f)
         {

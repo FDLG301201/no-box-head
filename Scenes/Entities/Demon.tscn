@@ -5,4 +5,4 @@
 [node name="Demon" type="CharacterBody2D"]
 script = ExtResource("1_demon")
 collision_layer = 4
-collision_mask = 3
+collision_mask = 1

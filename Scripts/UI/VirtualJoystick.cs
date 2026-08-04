@@ -9,8 +9,8 @@ namespace NoBoxHead;
 /// </summary>
 public partial class VirtualJoystick : Control
 {
-    [Export] public float Radius = 60f;
-    [Export] public float DeadZone = 0.1f;
+    [Export] public float Radius = 92f;
+    [Export] public float DeadZone = 0.12f;
 
     public Vector2 InputVector { get; private set; } = Vector2.Zero;
     public bool IsActive { get; private set; }
@@ -63,17 +63,33 @@ public partial class VirtualJoystick : Control
         }
     }
 
+    /// <summary>
+    /// Converts a touch position into this control's own coordinate space, accounting for
+    /// rotation and the canvas layer.
+    ///
+    /// Everything below works in that local space, which is what makes tabletop co-op fall
+    /// out for free: rotating the parent half (±90°, one direction per side — see
+    /// Platform.GetHalfRotation) turns the drag vector with it, so each player's "forward"
+    /// maps to their turned camera's forward, and the thumb still tracks their finger — no
+    /// per-player input remapping or sign flipping needed anywhere.
+    /// </summary>
+    private Vector2 ToLocalPoint(Vector2 screenPoint) =>
+        GetGlobalTransformWithCanvas().AffineInverse() * screenPoint;
+
     private void HandleTouch(InputEventScreenTouch ev)
     {
         if (ev.Pressed)
         {
             if (_touchIndex != -1) return; // already tracking a finger
 
-            // GetGlobalRect() returns the Control's bounding Rect2 in viewport/screen space.
-            if (GetGlobalRect().HasPoint(ev.Position))
+            // Circle hit-test in local space. A rect test would be wrong here: Godot's
+            // GetGlobalRect() ignores rotation, so it reports the wrong area once a half
+            // is flipped for tabletop mode.
+            var local = ToLocalPoint(ev.Position);
+            if (local.DistanceTo(_center) <= Radius)
             {
                 _touchIndex = (int)ev.Index;
-                _touchOrigin = ev.Position;
+                _touchOrigin = local;
                 IsActive = true;
                 MoveThumb(Vector2.Zero);
             }
@@ -87,25 +103,23 @@ public partial class VirtualJoystick : Control
     private void HandleDrag(InputEventScreenDrag ev)
     {
         if ((int)ev.Index != _touchIndex) return;
-        // Offset in screen space from where the touch started.
-        Vector2 delta = ev.Position - _touchOrigin;
-        MoveThumb(delta);
+        MoveThumb(ToLocalPoint(ev.Position) - _touchOrigin);
     }
 
-    private void MoveThumb(Vector2 screenDelta)
+    private void MoveThumb(Vector2 localDelta)
     {
-        float len = screenDelta.Length();
-        Vector2 dir = len > 0f ? screenDelta / len : Vector2.Zero;
+        float len = localDelta.Length();
+        Vector2 dir = len > 0f ? localDelta / len : Vector2.Zero;
         float clamped = Mathf.Min(len, Radius);
 
-        // Position thumb visually inside the control (local space = screen space here).
         if (_thumb != null)
         {
             float thumbR = Radius * 0.55f;
             _thumb.Position = _center + dir * clamped - Vector2.One * (thumbR / 2f);
         }
 
-        InputVector = len > DeadZone ? dir : Vector2.Zero;
+        // DeadZone is a fraction of the stick's travel, so it scales with Radius.
+        InputVector = len > DeadZone * Radius ? dir : Vector2.Zero;
     }
 
     private void ResetJoystick()

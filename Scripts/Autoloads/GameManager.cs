@@ -19,6 +19,14 @@ public partial class GameManager : Node
     private readonly List<Player> _players = new();
     private WaveSpawner? _waveSpawner;
 
+    // StartNextWave/SetEnemiesForWave/OnEnemyKilled only ever run on the host (they're driven
+    // by GameManager.StartGame(), itself gated to the server in Arena._Ready()) — GameManager
+    // is a plain per-peer autoload, not something Godot syncs on its own, so without this a
+    // joining client's own instance would sit at CurrentWave/EnemiesRemaining 0 forever and
+    // their HUD (wave banner, enemy counter) would never update even after enemies started
+    // appearing for them via WaveSpawner's own RPCs.
+    private bool IsHostAuthority => NetworkManager.IsNetworked && Multiplayer.IsServer();
+
     public override void _Ready() => Instance = this;
 
     public void RegisterPlayer(Player player)
@@ -42,6 +50,7 @@ public partial class GameManager : Node
     public void StartNextWave()
     {
         CurrentWave++;
+        if (IsHostAuthority) Rpc(MethodName.SyncWaveStarted, CurrentWave);
         EmitSignal(SignalName.WaveStarted, CurrentWave);
         // WaveSpawner calls SetEnemiesForWave() before spawning.
         _waveSpawner?.SpawnWave(CurrentWave);
@@ -51,12 +60,14 @@ public partial class GameManager : Node
     public void SetEnemiesForWave(int count)
     {
         EnemiesRemaining = count;
+        if (IsHostAuthority) Rpc(MethodName.SyncEnemiesRemaining, EnemiesRemaining);
         EmitSignal(SignalName.EnemiesRemainingChanged, EnemiesRemaining);
     }
 
     public void OnEnemyKilled()
     {
         EnemiesRemaining = Mathf.Max(0, EnemiesRemaining - 1);
+        if (IsHostAuthority) Rpc(MethodName.SyncEnemiesRemaining, EnemiesRemaining);
         EmitSignal(SignalName.EnemiesRemainingChanged, EnemiesRemaining);
 
         if (EnemiesRemaining <= 0)
@@ -65,6 +76,22 @@ public partial class GameManager : Node
             // processAlways:false so the inter-wave countdown halts while paused.
             GetTree().CreateTimer(3.0, false).Timeout += StartNextWave;
         }
+    }
+
+    // ── Client sync (host → everyone else) ──────────────────────────────────────
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
+    private void SyncWaveStarted(int wave)
+    {
+        CurrentWave = wave;
+        EmitSignal(SignalName.WaveStarted, wave);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
+    private void SyncEnemiesRemaining(int count)
+    {
+        EnemiesRemaining = count;
+        EmitSignal(SignalName.EnemiesRemainingChanged, count);
     }
 
     public void OnPlayerDied(Player player)

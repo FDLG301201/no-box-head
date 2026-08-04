@@ -20,12 +20,20 @@ public partial class CameraManager : Node
     private CameraMode _mode;
     private readonly List<Node2D> _players = new();
 
+    // In networked play the camera follows only this peer's own player: a shared/centroid
+    // camera would drift toward the midpoint between distant players and barely track you,
+    // and split-screen makes no sense when each peer has its own screen.
+    private Node2D? _followTarget;
+
     // Shared camera references.
     private Camera2D? _sharedCamera;
 
-    // Split-screen references (one entry per player).
+    // Split-screen references (one entry per player). _containers holds each player's wrapper
+    // Control (see WrapForHalf) — normally just a pass-through, but in tabletop mode it's what
+    // actually gets rotated/resized to fit a landscape-rendered view into a portrait-shaped
+    // physical half.
     private readonly List<SubViewport> _viewports = new();
-    private readonly List<SubViewportContainer> _containers = new();
+    private readonly List<Control> _containers = new();
     private readonly List<Camera2D> _splitCameras = new();
 
     // The Control node that holds split-screen containers.
@@ -33,15 +41,23 @@ public partial class CameraManager : Node
 
     // ── Setup ─────────────────────────────────────────────────────────────────
 
-    public void Setup(List<Node2D> players, Control screenRoot)
+    /// <param name="localPlayer">
+    /// This peer's own player. When set (networked play) the camera follows it exclusively.
+    /// </param>
+    public void Setup(List<Node2D> players, Control screenRoot, Node2D? localPlayer = null)
     {
         _players.Clear();
         _players.AddRange(players);
         _screenRoot = screenRoot;
-        // Local co-op always needs split-screen regardless of saved camera setting.
-        _mode = (SettingsManager.Instance?.GameMode == GameMode.LocalCoop)
-            ? CameraMode.SplitScreen
-            : (SettingsManager.Instance?.CameraMode ?? CameraMode.Shared);
+        _followTarget = localPlayer;
+
+        // Networked: one camera glued to your own player.
+        // Local co-op: split-screen, regardless of the saved camera setting.
+        _mode = _followTarget != null
+            ? CameraMode.Shared
+            : (SettingsManager.Instance?.GameMode == GameMode.LocalCoop)
+                ? CameraMode.SplitScreen
+                : (SettingsManager.Instance?.CameraMode ?? CameraMode.Shared);
 
         if (_mode == CameraMode.Shared)
             SetupShared();
@@ -53,11 +69,26 @@ public partial class CameraManager : Node
     {
         TeardownSplitScreen();
 
-        _sharedCamera = new Camera2D { Enabled = true, Zoom = Vector2.One };
-        // Add as child of CameraManager so it's inside the Arena scene tree.
-        AddChild(_sharedCamera);
+        // Setup() re-runs every time a player spawns (once for the host, again per remote
+        // peer as their RPC arrives over the network) — reuse the existing camera instead of
+        // creating a new one each time. Creating a new Camera2D without freeing the old one
+        // left multiple enabled cameras fighting over "current": _sharedCamera (the field
+        // UpdateSharedCamera actually moves every frame) ended up pointing at the newest one,
+        // while an orphaned earlier camera silently stayed the one actually being rendered —
+        // which looked exactly like "the camera isn't tracking anyone."
+        if (_sharedCamera == null)
+        {
+            _sharedCamera = new Camera2D { Enabled = true, Zoom = Vector2.One };
+            AddChild(_sharedCamera); // child of CameraManager, so inside the Arena scene tree
+        }
 
-        // Start at the centroid immediately so there's no jarring lerp from world origin.
+        // Snap to the target immediately so there's no jarring lerp from world origin.
+        if (_followTarget != null && IsInstanceValid(_followTarget))
+        {
+            _sharedCamera.GlobalPosition = _followTarget.GlobalPosition;
+            return;
+        }
+
         var validOnSetup = _players.Where(p => IsInstanceValid(p)).ToList();
         if (validOnSetup.Count > 0)
         {
@@ -96,6 +127,8 @@ public partial class CameraManager : Node
         };
         vp.World2D = GetViewport().World2D;
 
+        // No camera-side rotation needed: the camera renders a normal, upright landscape
+        // composition; WrapForHalf below handles turning that to fit the player's seat.
         var camera = new Camera2D { Enabled = true, Zoom = Vector2.One };
         vp.AddChild(camera);
 
@@ -105,11 +138,58 @@ public partial class CameraManager : Node
             Stretch = true
         };
         container.AddChild(vp);
-        _screenRoot.AddChild(container);
+
+        Control wrapper;
+        float rotation = Platform.GetHalfRotation(index);
+        if (Mathf.IsZeroApprox(rotation))
+        {
+            wrapper = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
+            wrapper.AddChild(container);
+            container.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        }
+        else
+        {
+            // Tabletop mode always splits the full device screen straight 50/50 left/right —
+            // the only shape this ever needs — computed directly from the live window size
+            // rather than waiting on a Resized signal from an as-yet-unparented wrapper
+            // Control, which in testing never reliably fired for a nested
+            // SubViewportContainer (unlike a plain Control, e.g. HUD's equivalent rotation
+            // wrapper, which resizes correctly via Resized) — this sidesteps that entirely.
+            var screenSize = GetViewport().GetVisibleRect().Size;
+            var halfSize   = new Vector2(screenSize.X / 2f, screenSize.Y);
+            wrapper = WrapForHalf(container, rotation, halfSize);
+        }
+
+        _screenRoot.AddChild(wrapper);
 
         _viewports.Add(vp);
         _splitCameras.Add(camera);
-        _containers.Add(container);
+        _containers.Add(wrapper);
+    }
+
+    /// <summary>
+    /// Wraps a SubViewportContainer, rotated 90° so a landscape-rendered view fits a
+    /// portrait-shaped physical half (tabletop mode: splitting a landscape screen vertically
+    /// gives each half a portrait-shaped area, but the game view inside should still read
+    /// landscape from that player's seat). <paramref name="physicalSize"/> is the half's real
+    /// on-screen size, known up front, so Size/Position/PivotOffset are computed once here
+    /// instead of through a deferred resize callback.
+    /// </summary>
+    private static Control WrapForHalf(SubViewportContainer container, float rotation, Vector2 physicalSize)
+    {
+        var wrapper = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
+        wrapper.AddChild(container);
+
+        container.Rotation = rotation;
+        var swapped = new Vector2(physicalSize.Y, physicalSize.X);
+        container.Size        = swapped;
+        container.PivotOffset = swapped / 2f;
+        // Places the pivot (Position + PivotOffset) at the half's own centre, so the rotated
+        // footprint — swapped dimensions rotated 90° back to (physicalSize.X, physicalSize.Y) —
+        // lands exactly on the half's bounds regardless of rotation sign.
+        container.Position = physicalSize / 2f - swapped / 2f;
+
+        return wrapper;
     }
 
     private void LayoutContainers()
@@ -128,7 +208,10 @@ public partial class CameraManager : Node
                     c.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
                     break;
                 case 2:
-                    // Horizontal split.
+                    // Left/right split — desktop, console, AND tabletop mobile co-op alike.
+                    // Tabletop's left/right halves being turned 90° to read landscape from
+                    // each player's seat is handled entirely inside WrapForHalf; the split
+                    // itself is the same plain vertical divider either way.
                     c.AnchorLeft = i * 0.5f;
                     c.AnchorRight = (i + 1) * 0.5f;
                     c.AnchorTop = 0f;
@@ -161,8 +244,18 @@ public partial class CameraManager : Node
 
     private void UpdateSharedCamera(float delta)
     {
-        if (_sharedCamera == null || _players.Count == 0) return;
+        if (_sharedCamera == null) return;
 
+        // Networked: track only this peer's player, at a fixed zoom.
+        if (_followTarget != null)
+        {
+            if (!IsInstanceValid(_followTarget)) return;
+            _sharedCamera.GlobalPosition = _sharedCamera.GlobalPosition
+                .Lerp(_followTarget.GlobalPosition, CameraLerpSpeed * delta);
+            return;
+        }
+
+        if (_players.Count == 0) return;
         var validPlayers = _players.Where(p => IsInstanceValid(p)).ToList();
         if (validPlayers.Count == 0) return;
 

@@ -96,7 +96,11 @@ public partial class Ogre : CharacterBody2D, IDamageable, IKnockbackable
 			dir = (target.GlobalPosition - GlobalPosition).Normalized();
 		}
 
-		Velocity = dir * MoveSpeed;
+		// Stop pushing forward once within melee range so it doesn't keep sliding into the
+		// player's hitbox while already attacking — see Enemy.cs for the full rationale.
+		float distToTarget = GlobalPosition.DistanceTo(target.GlobalPosition);
+		bool  inMeleeRange = _targetBarrel == null && distToTarget <= AttackRange;
+		Velocity = inMeleeRange ? Vector2.Zero : dir * MoveSpeed;
 
 		foreach (var node in GetTree().GetNodesInGroup("enemies"))
 		{
@@ -107,6 +111,9 @@ public partial class Ogre : CharacterBody2D, IDamageable, IKnockbackable
 					Velocity += (GlobalPosition - other.GlobalPosition).Normalized() * (30f - d) * 0.5f;
 			}
 		}
+
+		// Yield to a player pushing through — see CrowdSeparation and Enemy.cs.
+		Velocity += CrowdSeparation.AwayFromPlayers(this, AttackRange);
 
 		// Heavy body: knockback (applied on hit, see ApplyKnockback) is already dampened,
 		// so it just needs the normal decay here.
@@ -120,10 +127,12 @@ public partial class Ogre : CharacterBody2D, IDamageable, IKnockbackable
 			_knockback = Vector2.Zero;
 		}
 
+		float intendedDist = Velocity.Length() * (float)delta;
+
 		MoveAndSlide();
 
 		float movedDist    = GlobalPosition.DistanceTo(_prevPosition);
-		float expectedDist = MoveSpeed * (float)delta;
+		float expectedDist = intendedDist;
 		if (expectedDist > 0f && movedDist < expectedDist * StuckMinRatio)
 		{
 			_stuckTimer += (float)delta;

@@ -18,15 +18,33 @@ public partial class MainMenuUI : Control
 		bg.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 		AddChild(bg);
 
+		// ScrollContainer + CenterContainer instead of a fixed pixel offset: the old
+		// Position-based centering assumed a content height that grew (Arena/Skin rows) and
+		// started pushing "Settings" off the bottom of the window. This centers when content
+		// fits and scrolls instead of clipping when it doesn't — also matters on small mobile
+		// screens, where this menu runs too.
+		var scroll = new ScrollContainer
+		{
+			AnchorRight          = 1f, AnchorBottom = 1f,
+			HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+		};
+		AddChild(scroll);
+
+		var hcenter = new CenterContainer
+		{
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+			SizeFlagsVertical   = SizeFlags.ExpandFill,
+		};
+		scroll.AddChild(hcenter);
+
 		var vbox = new VBoxContainer();
-		vbox.SetAnchorsAndOffsetsPreset(LayoutPreset.Center);
 		vbox.CustomMinimumSize = new Vector2(320, 0);
-		vbox.Position -= new Vector2(160, 120);
-		AddChild(vbox);
+		hcenter.AddChild(vbox);
 
 		AddTitle(vbox, "NO BOX HEAD");
 
 		AddArenaSelector(vbox);
+		AddSkinSelector(vbox);
 
 		AddButton(vbox, "Solo Play",   OnSoloPressed);
 		AddButton(vbox, "Local Co-op", OnLocalCoopPressed);
@@ -64,6 +82,55 @@ public partial class MainMenuUI : Control
 		{
 			if (SettingsManager.Instance != null)
 				SettingsManager.Instance.ArenaType = (ArenaType)(int)id;
+		};
+		row.AddChild(opt);
+
+		parent.AddChild(new Control { CustomMinimumSize = new Vector2(0, 14) });
+	}
+
+	// Skin picker with a live preview of the character. In co-op / online the other players
+	// are automatically offset to neighbouring skins so nobody looks identical.
+	private static void AddSkinSelector(Control parent)
+	{
+		var row = new HBoxContainer { CustomMinimumSize = new Vector2(320, 0) };
+		parent.AddChild(row);
+
+		var label = new Label
+		{
+			Text = "Skin:",
+			CustomMinimumSize = new Vector2(90, 0),
+			VerticalAlignment = VerticalAlignment.Center
+		};
+		label.AddThemeFontSizeOverride("font_size", 18);
+		row.AddChild(label);
+
+		var preview = new TextureRect
+		{
+			CustomMinimumSize = new Vector2(44, 44),
+			ExpandMode        = TextureRect.ExpandModeEnum.IgnoreSize,
+			StretchMode       = TextureRect.StretchModeEnum.KeepAspectCentered,
+		};
+		row.AddChild(preview);
+
+		var opt = new OptionButton
+		{
+			CustomMinimumSize   = new Vector2(186, 44),
+			SizeFlagsHorizontal = SizeFlags.ExpandFill,
+		};
+		opt.AddThemeFontSizeOverride("font_size", 18);
+		for (int i = 0; i < PlayerSkins.Count; i++)
+			opt.AddItem(PlayerSkins.Get(i).Name, i);
+
+		int current = SettingsManager.Instance?.SkinIndex ?? 0;
+		opt.Selected      = current;
+		preview.Texture   = PlayerSkins.LoadTexture(current);
+
+		opt.ItemSelected += id =>
+		{
+			if (SettingsManager.Instance == null) return;
+			SettingsManager.Instance.SkinIndex = (int)id;
+			SettingsManager.Instance.SaveSettings();
+			preview.Texture = PlayerSkins.LoadTexture((int)id);
 		};
 		row.AddChild(opt);
 

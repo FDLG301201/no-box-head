@@ -29,6 +29,11 @@ public partial class LobbyUI : Control
 
         BuildUI();
 
+        // Both host and client wait right here until the host explicitly starts — keeps
+        // everyone's Arena._Ready() (player spawn, wave 1, …) running in lockstep instead of
+        // a client racing ahead into an empty arena the instant they connect.
+        NetworkManager.Instance.GameStarting += OnGameStarting;
+
         if (_isHost)
             StartHost();
         else
@@ -37,8 +42,16 @@ public partial class LobbyUI : Control
 
     public override void _ExitTree()
     {
+        if (NetworkManager.Instance != null)
+            NetworkManager.Instance.GameStarting -= OnGameStarting;
         if (!_isHost)
             NetworkManager.Instance?.StopDiscovery();
+    }
+
+    private void OnGameStarting()
+    {
+        NetworkManager.Instance.StopBroadcasting();
+        GetTree().ChangeSceneToFile("res://Scenes/Arena.tscn");
     }
 
     // ── UI Construction ───────────────────────────────────────────────────────
@@ -70,7 +83,11 @@ public partial class LobbyUI : Control
             BuildJoinUI(vbox);
 
         vbox.AddChild(Spacer(20));
-        var back = new Button { Text = "Back", CustomMinimumSize = new Vector2(400, 50) };
+        var back = new Button
+        {
+            Text = "Back", CustomMinimumSize = new Vector2(400, 50),
+            ThemeTypeVariation = "ButtonDanger",
+        };
         back.Pressed += () =>
         {
             NetworkManager.Instance?.Disconnect();
@@ -187,7 +204,9 @@ public partial class LobbyUI : Control
         NetworkManager.Instance.GamesDiscovered += RefreshGameList;
         NetworkManager.Instance.PlayerIndexAssigned += _ =>
         {
-            GetTree().ChangeSceneToFile("res://Scenes/Arena.tscn");
+            // Connected, but the scene stays put until GameStarting arrives (OnGameStarting) —
+            // this is the "you're in, hang tight" state the player was otherwise missing.
+            if (_statusLabel != null) _statusLabel.Text = "Connected! Waiting for host to start…";
         };
         NetworkManager.Instance.ConnectionFailed += () =>
         {
@@ -265,8 +284,9 @@ public partial class LobbyUI : Control
 
     private void OnStartGamePressed()
     {
-        NetworkManager.Instance.StopBroadcasting();
-        GetTree().ChangeSceneToFile("res://Scenes/Arena.tscn");
+        // Broadcasts GameStarting to every connected peer (and fires locally too, since the
+        // RPC is CallLocal) — OnGameStarting does the actual scene change for everyone.
+        NetworkManager.Instance.BroadcastGameStarting();
     }
 
     private static Control Spacer(int h) => new Control { CustomMinimumSize = new Vector2(0, h) };

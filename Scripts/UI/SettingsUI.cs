@@ -20,7 +20,11 @@ public partial class SettingsUI : Control
 
     private void BuildUI()
     {
-        var bg = new ColorRect { Color = new Color(0.08f, 0.08f, 0.1f) };
+        var bg = new ColorRect
+        {
+            Color       = new Color(0.08f, 0.08f, 0.1f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
         bg.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(bg);
 
@@ -34,14 +38,18 @@ public partial class SettingsUI : Control
         root.AddThemeConstantOverride("separation", 10);
         AddChild(root);
 
-        var title = new Label { Text = "Settings", HorizontalAlignment = HorizontalAlignment.Center };
+        var title = MakeLabel("Settings", HorizontalAlignment.Center);
         title.AddThemeFontSizeOverride("font_size", 30);
         root.AddChild(title);
 
         var scroll = new ScrollContainer
         {
-            SizeFlagsVertical   = SizeFlags.ExpandFill,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical    = SizeFlags.ExpandFill,
+            SizeFlagsHorizontal  = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            // Keeps drag/wheel scrolling functional but hides the visual scrollbar strip —
+            // was showing as an ugly permanent sidebar down the right edge on mobile.
+            VerticalScrollMode   = ScrollContainer.ScrollMode.ShowNever,
         };
         root.AddChild(scroll);
 
@@ -55,7 +63,11 @@ public partial class SettingsUI : Control
 
         UpdateButtonStates();
 
-        var backBtn = new Button { Text = "Back", CustomMinimumSize = new Vector2(0, 50) };
+        var backBtn = new Button
+        {
+            Text = "Back", CustomMinimumSize = new Vector2(0, 50),
+            ThemeTypeVariation = "ButtonDanger",
+        };
         backBtn.AddThemeFontSizeOverride("font_size", 20);
         backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://Scenes/MainMenu.tscn");
         root.AddChild(backBtn);
@@ -65,7 +77,7 @@ public partial class SettingsUI : Control
 
     private void BuildCameraSection(VBoxContainer vbox)
     {
-        var camLabel = new Label { Text = "Camera Mode" };
+        var camLabel = MakeLabel("Camera Mode");
         camLabel.AddThemeFontSizeOverride("font_size", 18);
         vbox.AddChild(camLabel);
 
@@ -85,7 +97,7 @@ public partial class SettingsUI : Control
 
     private void BuildAudioSection(VBoxContainer vbox)
     {
-        var header = new Label { Text = "Sound Effects" };
+        var header = MakeLabel("Sound Effects");
         header.AddThemeFontSizeOverride("font_size", 18);
         vbox.AddChild(header);
 
@@ -103,11 +115,9 @@ public partial class SettingsUI : Control
         };
         row.AddChild(slider);
 
-        var readout = new Label
-        {
-            CustomMinimumSize = new Vector2(60, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+        var readout = MakeLabel("");
+        readout.CustomMinimumSize = new Vector2(60, 0);
+        readout.VerticalAlignment = VerticalAlignment.Center;
         readout.AddThemeFontSizeOverride("font_size", 15);
         row.AddChild(readout);
 
@@ -130,17 +140,15 @@ public partial class SettingsUI : Control
 
     private void BuildAimSection(VBoxContainer vbox)
     {
-        var aimLabel = new Label { Text = "Aim Mode" };
+        var aimLabel = MakeLabel("Aim Mode");
         aimLabel.AddThemeFontSizeOverride("font_size", 18);
         vbox.AddChild(aimLabel);
 
-        var aimDesc = new Label
-        {
-            Text = "Movement: aims toward the direction you walk\n" +
-                   "Mouse: aims toward the cursor (single player only)\n" +
-                   "Auto-Aim: locks onto the nearest enemy",
-            AutowrapMode = TextServer.AutowrapMode.Word,
-        };
+        var aimDesc = MakeLabel(
+            "Movement: aims toward the direction you walk\n" +
+            "Mouse: aims toward the cursor (single player only)\n" +
+            "Auto-Aim: locks onto the nearest enemy");
+        aimDesc.AutowrapMode = TextServer.AutowrapMode.Word;
         aimDesc.AddThemeColorOverride("font_color", new Color(0.7f, 0.7f, 0.7f));
         aimDesc.AddThemeFontSizeOverride("font_size", 13);
         vbox.AddChild(aimDesc);
@@ -152,6 +160,9 @@ public partial class SettingsUI : Control
         _aimMoveBtn  = MakeToggleBtn("Movement");
         _aimMouseBtn = MakeToggleBtn("Mouse");
         _aimAutoBtn  = MakeToggleBtn("Auto-Aim");
+
+        // No cursor exists on a touch device, so mouse aim can't be selected there.
+        _aimMouseBtn.Disabled = Platform.IsMobile;
 
         _aimMoveBtn.Pressed  += () => SetAimMode(AimMode.Movement);
         _aimMouseBtn.Pressed += () => SetAimMode(AimMode.Mouse);
@@ -166,15 +177,12 @@ public partial class SettingsUI : Control
 
     private void BuildControlsSection(VBoxContainer vbox)
     {
-        var header = new Label { Text = "Controls (Player 1)" };
+        var header = MakeLabel("Controls (Player 1)");
         header.AddThemeFontSizeOverride("font_size", 18);
         vbox.AddChild(header);
 
-        _bindHint = new Label
-        {
-            Text         = "Click a key to rebind it. Escape cancels.",
-            AutowrapMode = TextServer.AutowrapMode.Word,
-        };
+        _bindHint = MakeLabel("Click a key to rebind it. Escape cancels.");
+        _bindHint.AutowrapMode = TextServer.AutowrapMode.Word;
         _bindHint.AddThemeColorOverride("font_color", new Color(0.7f, 0.7f, 0.7f));
         _bindHint.AddThemeFontSizeOverride("font_size", 13);
         vbox.AddChild(_bindHint);
@@ -185,12 +193,9 @@ public partial class SettingsUI : Control
             var row = new HBoxContainer { CustomMinimumSize = new Vector2(0, 40) };
             vbox.AddChild(row);
 
-            var name = new Label
-            {
-                Text                = label,
-                SizeFlagsHorizontal = SizeFlags.ExpandFill,
-                VerticalAlignment   = VerticalAlignment.Center,
-            };
+            var name = MakeLabel(label);
+            name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            name.VerticalAlignment   = VerticalAlignment.Center;
             name.AddThemeFontSizeOverride("font_size", 15);
             row.AddChild(name);
 
@@ -325,5 +330,19 @@ public partial class SettingsUI : Control
         SizeFlagsHorizontal = SizeFlags.ExpandFill,
     };
 
-    private static Control Spacer(int height) => new() { CustomMinimumSize = new Vector2(0, height) };
+    private static Control Spacer(int height) =>
+        new() { CustomMinimumSize = new Vector2(0, height), MouseFilter = Control.MouseFilterEnum.Ignore };
+
+    // Purely decorative text (headers, descriptions, tags) must ignore mouse/touch input.
+    // Control's default filter is Stop, which — since Godot resolves an input event against
+    // whatever Control is directly under the finger — meant a drag gesture starting on top of
+    // one of these labels (very likely: this screen is mostly text) never reached the
+    // ScrollContainer to be recognised as a scroll at all. Interactive widgets (Button,
+    // HSlider, LineEdit) are left with their default Stop filter so they still capture clicks.
+    private static Label MakeLabel(string text, HorizontalAlignment align = HorizontalAlignment.Left) => new()
+    {
+        Text                = text,
+        HorizontalAlignment = align,
+        MouseFilter         = Control.MouseFilterEnum.Ignore,
+    };
 }

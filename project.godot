@@ -32,6 +32,10 @@ window/stretch/aspect="expand"
 
 project/assembly_name="NoBoxHead"
 
+[gui]
+
+theme/custom="res://Assets/UI-interfaces/GameTheme.tres"
+
 [input]
 
 move_up={

@@ -34,19 +34,75 @@ public partial class HUD : CanvasLayer
 
 	public bool IsGameOver { get; private set; }
 
-	// Generic feature-tag check: true on Android/iOS exports, false on desktop/editor —
-	// used to gate touch-only UI (virtual joysticks, on-screen action buttons) so a
-	// keyboard-and-mouse session never sees controls it doesn't need.
-	public static bool IsMobile => OS.HasFeature("mobile");
+	private static bool IsMobile => Platform.IsMobile;
 
+	// ── Per-player screen halves ──────────────────────────────────────────────
+
+	/// <summary>
+	/// Builds a player's screen-half. <c>Root</c> is what the caller adds to the scene tree
+	/// (it holds the real screen-split anchors); <c>Content</c> is what the caller adds its
+	/// own children to. Outside tabletop mode these are the same Control. In tabletop mode
+	/// they differ: Content is nested inside Root with swapped (landscape) dimensions and a
+	/// 90° rotation (see RotateHalfContent), so a caller can add children with the usual
+	/// bottom-left/bottom-right anchors as if it were a normal landscape half — none of the
+	/// rotation math leaks out.
+	/// </summary>
+	private (Control Root, Control Content) MakePlayerHalf(int playerIndex, bool isCoop)
+	{
+		var outer = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
+
+		if (!isCoop)
+		{
+			outer.AnchorLeft = 0f; outer.AnchorRight  = 1f;
+			outer.AnchorTop  = 0f; outer.AnchorBottom = 1f;
+			return (outer, outer);
+		}
+
+		// Same plain vertical divider either way — tabletop's rotation is applied below, not
+		// to the split itself.
+		outer.AnchorLeft   = playerIndex == 1 ? 0.5f : 0f;
+		outer.AnchorRight  = playerIndex == 0 ? 0.5f : 1f;
+		outer.AnchorTop    = 0f; outer.AnchorBottom = 1f;
+
+		float rotation = Platform.GetHalfRotation(playerIndex);
+		if (Mathf.IsZeroApprox(rotation)) return (outer, outer);
+
+		// Tabletop always splits the full device screen straight 50/50 left/right — the only
+		// shape this ever needs — computed directly from the live window size rather than a
+		// Resized signal, which for the equivalent camera-side wrapper never reliably fired
+		// (see CameraManager.WrapForHalf); computing it once up front sidesteps that entirely.
+		var screenSize = GetViewport().GetVisibleRect().Size;
+		var halfSize   = new Vector2(screenSize.X / 2f, screenSize.Y);
+		return (outer, RotateHalfContent(outer, rotation, halfSize));
+	}
+
+	/// <summary>
+	/// Nests a landscape-dimensioned, rotated content Control inside <paramref name="outer"/>
+	/// and returns it. Mirrors CameraManager.WrapForHalf: the outer Control keeps plain
+	/// unrotated anchors (the actual screen split), while the inner one gets the physical
+	/// half's real on-screen size (<paramref name="physicalSize"/>) swapped and rotated, so
+	/// content laid out normally inside it — joystick margins, button positions, all of it —
+	/// lands correctly once turned to fit.
+	/// </summary>
+	private static Control RotateHalfContent(Control outer, float rotation, Vector2 physicalSize)
+	{
+		var inner = new Control { MouseFilter = Control.MouseFilterEnum.Ignore, Rotation = rotation };
+		outer.AddChild(inner);
+
+		var swapped = new Vector2(physicalSize.Y, physicalSize.X);
+		inner.Size        = swapped;
+		inner.PivotOffset = swapped / 2f;
+		// Pivot (Position + PivotOffset) lands on the half's own centre, so the rotated
+		// footprint — swapped dims turned back to (physicalSize.X, physicalSize.Y) — exactly
+		// fills its bounds.
+		inner.Position = physicalSize / 2f - swapped / 2f;
+		return inner;
+	}
+
+	// Desktop-only HUD buttons; touch controls wire straight to the Player in AddTouchControls.
 	public System.Action? SwitchWeaponCallback     { get; set; }
 	public System.Action? SwitchWeaponPrevCallback { get; set; }
-	public System.Action? KnifeCallback            { get; set; }
 	public System.Action? PauseCallback            { get; set; }
-
-	public System.Action? SwitchWeaponCallbackP2     { get; set; }
-	public System.Action? SwitchWeaponPrevCallbackP2 { get; set; }
-	public System.Action? KnifeCallbackP2            { get; set; }
 
 	private float  _maxHealth   = 100f;
 	private int    _currentWave = 1;
@@ -85,6 +141,24 @@ public partial class HUD : CanvasLayer
 		}
 	}
 
+	// GameManager/ScoreManager are autoloads — they outlive this HUD across a scene reload
+	// (Restart/Play Again). Without unsubscribing, the NEXT playthrough's signals would also
+	// fire on this disposed instance, throwing ObjectDisposedException from these very
+	// handlers the moment they touched a freed Label.
+	public override void _ExitTree()
+	{
+		if (GameManager.Instance != null)
+		{
+			GameManager.Instance.WaveStarted             -= OnWaveStarted;
+			GameManager.Instance.EnemiesRemainingChanged -= OnEnemiesChanged;
+		}
+		if (ScoreManager.Instance != null)
+		{
+			ScoreManager.Instance.ScoreChanged   -= OnScoreChanged;
+			ScoreManager.Instance.WeaponUnlocked -= OnWeaponUnlocked;
+		}
+	}
+
 	// ── HUD elements ──────────────────────────────────────────────────────────
 
 	private void BuildHUD()
@@ -116,44 +190,37 @@ public partial class HUD : CanvasLayer
 		_weaponLabel.AddThemeFontSizeOverride("font_size", 14);
 		AddChild(_weaponLabel);
 
-		var prevBtn = new Button
+		// Weapon-switch buttons. On touch these live around the aim stick instead (see
+		// AddTouchControls), so here they're desktop-only mouse shortcuts.
+		if (!IsMobile)
 		{
-			Text     = IsMobile ? "Prev" : "[E] Prev",
-			Position = new Vector2(10, 96),
-			Size     = new Vector2(66, 28),
-		};
-		prevBtn.Pressed += () => SwitchWeaponPrevCallback?.Invoke();
-		AddChild(prevBtn);
-
-		var switchBtn = new Button
-		{
-			Text     = IsMobile ? "Next" : "[Q] Next",
-			Position = new Vector2(82, 96),
-			Size     = new Vector2(66, 28),
-		};
-		switchBtn.Pressed += () => SwitchWeaponCallback?.Invoke();
-		AddChild(switchBtn);
-
-		// Knife has a keyboard shortcut on desktop (V / numpad); touch has no keyboard at all,
-		// so it needs its own tappable button.
-		if (IsMobile)
-		{
-			var knifeBtn = new Button
+			var prevBtn = new Button
 			{
-				Text     = "Knife",
-				Position = new Vector2(154, 96),
-				Size     = new Vector2(66, 28),
+				Text     = "[E] Prev",
+				Position = new Vector2(10, 96),
+				Size     = new Vector2(100, 28),
 			};
-			knifeBtn.Pressed += () => KnifeCallback?.Invoke();
-			AddChild(knifeBtn);
+			prevBtn.Pressed += () => SwitchWeaponPrevCallback?.Invoke();
+			AddChild(prevBtn);
 
+			var switchBtn = new Button
+			{
+				Text     = "[Q] Next",
+				Position = new Vector2(116, 96),
+				Size     = new Vector2(100, 28),
+			};
+			switchBtn.Pressed += () => SwitchWeaponCallback?.Invoke();
+			AddChild(switchBtn);
+		}
+		else
+		{
 			// Desktop opens pause via P/Escape; touch has no keyboard, so it needs a button.
 			var pauseBtn = new Button
 			{
-				Text                = "Pause",
+				Text                = "II",
 				AnchorLeft          = 1f, AnchorRight = 1f,
-				Position            = new Vector2(-70, 90),
-				Size                = new Vector2(60, 32),
+				Position            = new Vector2(-66, 90),
+				Size                = new Vector2(56, 40),
 			};
 			pauseBtn.Pressed += () => { if (!IsGameOver) PauseCallback?.Invoke(); };
 			AddChild(pauseBtn);
@@ -229,14 +296,9 @@ public partial class HUD : CanvasLayer
 
 	private void BuildP2Panel()
 	{
-		// Container anchored to the right half so it overlays P2's split viewport.
-		var panel = new Control
-		{
-			AnchorLeft   = 0.5f, AnchorRight  = 1f,
-			AnchorTop    = 0f,   AnchorBottom = 1f,
-			MouseFilter  = Control.MouseFilterEnum.Ignore,
-		};
-		AddChild(panel);
+		// Overlays P2's split viewport, wherever that is on this platform.
+		var (root, panel) = MakePlayerHalf(1, isCoop: true);
+		AddChild(root);
 
 		// Tag label.
 		var tag = new Label { Text = "P2", Position = new Vector2(10, -2) };
@@ -270,21 +332,7 @@ public partial class HUD : CanvasLayer
 		_weaponLabelP2.AddThemeFontSizeOverride("font_size", 14);
 		panel.AddChild(_weaponLabelP2);
 
-		// P2 normally switches weapons via numpad, which doesn't exist on a touch device.
-		if (IsMobile)
-		{
-			var prevBtn = new Button { Text = "Prev", Position = new Vector2(10, 96), Size = new Vector2(66, 28) };
-			prevBtn.Pressed += () => SwitchWeaponPrevCallbackP2?.Invoke();
-			panel.AddChild(prevBtn);
-
-			var nextBtn = new Button { Text = "Next", Position = new Vector2(82, 96), Size = new Vector2(66, 28) };
-			nextBtn.Pressed += () => SwitchWeaponCallbackP2?.Invoke();
-			panel.AddChild(nextBtn);
-
-			var knifeBtn = new Button { Text = "Knife", Position = new Vector2(154, 96), Size = new Vector2(66, 28) };
-			knifeBtn.Pressed += () => KnifeCallbackP2?.Invoke();
-			panel.AddChild(knifeBtn);
-		}
+		// On touch, P2's action buttons live around their own joysticks (AddTouchControls).
 	}
 
 	// ── Pause menu ────────────────────────────────────────────────────────────
@@ -340,7 +388,7 @@ public partial class HUD : CanvasLayer
 		settingsBtn.Pressed += () => ShowPauseSettings(true);
 		vbox.AddChild(settingsBtn);
 
-		var restartBtn = MakeMenuButton("Restart");
+		var restartBtn = MakeMenuButton("Restart", danger: true);
 		restartBtn.Pressed += () =>
 		{
 			GetTree().Paused = false;
@@ -348,7 +396,7 @@ public partial class HUD : CanvasLayer
 		};
 		vbox.AddChild(restartBtn);
 
-		var menuBtn = MakeMenuButton("Main Menu");
+		var menuBtn = MakeMenuButton("Main Menu", danger: true);
 		menuBtn.Pressed += () =>
 		{
 			GetTree().Paused = false;
@@ -395,7 +443,7 @@ public partial class HUD : CanvasLayer
 
 		vbox.AddChild(new HSeparator());
 
-		var backBtn = MakeMenuButton("Back");
+		var backBtn = MakeMenuButton("Back", danger: true);
 		backBtn.Pressed += () => ShowPauseSettings(false);
 		vbox.AddChild(backBtn);
 
@@ -429,7 +477,8 @@ public partial class HUD : CanvasLayer
 		row.AddThemeConstantOverride("separation", 6);
 		parent.AddChild(row);
 
-		bool isCoop = SettingsManager.Instance?.GameMode == GameMode.LocalCoop;
+		// Mouse aim needs a single cursor: unusable split-screen, absent entirely on touch.
+		bool noMouseAim = SettingsManager.Instance?.GameMode == GameMode.LocalCoop || IsMobile;
 
 		foreach (var mode in new[] { AimMode.Movement, AimMode.Mouse, AimMode.AutoAim })
 		{
@@ -444,8 +493,7 @@ public partial class HUD : CanvasLayer
 				ToggleMode          = true,
 				CustomMinimumSize   = new Vector2(0, 38),
 				SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-				// Mouse aim needs a single cursor, so it stays unavailable in local co-op.
-				Disabled            = isCoop && mode == AimMode.Mouse,
+				Disabled            = noMouseAim && mode == AimMode.Mouse,
 			};
 			btn.AddThemeFontSizeOverride("font_size", 15);
 
@@ -456,6 +504,7 @@ public partial class HUD : CanvasLayer
 				SettingsManager.Instance.AimMode = captured;
 				SettingsManager.Instance.SaveSettings();
 				RefreshPauseAimButtons();
+				if (IsMobile) RefreshTouchAimClusters();
 			};
 
 			_aimButtons[mode] = btn;
@@ -569,7 +618,7 @@ public partial class HUD : CanvasLayer
 		playAgainBtn.Pressed += () => GetTree().ReloadCurrentScene();
 		vbox.AddChild(playAgainBtn);
 
-		var menuBtn = MakeMenuButton("Main Menu");
+		var menuBtn = MakeMenuButton("Main Menu", danger: true);
 		menuBtn.Pressed += () => GetTree().ChangeSceneToFile("res://Scenes/MainMenu.tscn");
 		vbox.AddChild(menuBtn);
 
@@ -577,13 +626,14 @@ public partial class HUD : CanvasLayer
 		AddChild(_gameOverOverlay);
 	}
 
-	private static Button MakeMenuButton(string text)
+	private static Button MakeMenuButton(string text, bool danger = false)
 	{
 		var btn = new Button
 		{
 			Text              = text,
 			CustomMinimumSize = new Vector2(220, 46),
 			SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+			ThemeTypeVariation  = danger ? "ButtonDanger" : "",
 		};
 		btn.AddThemeFontSizeOverride("font_size", 20);
 		return btn;
@@ -659,35 +709,132 @@ public partial class HUD : CanvasLayer
 		if (_weaponLabelP2 != null) _weaponLabelP2.Text = weaponName;
 	}
 
+	// Matches VirtualJoystick's default Radius — used to size/place the aim-side cluster even
+	// when it's showing the FIRE button instead of an actual stick.
+	private const float AimZoneRadius = 92f;
+	private const float TouchMargin   = 118f; // screen-corner-to-stick-centre distance
+
+	// One entry per local touch player, kept so the aim-side cluster (stick vs FIRE button)
+	// can be torn down and rebuilt in place when the aim mode changes mid-run.
+	private sealed class TouchPlayerContext
+	{
+		public Control Half = null!;
+		public Player  Player = null!;
+		public Control? AimCluster;
+	}
+	private readonly System.Collections.Generic.List<TouchPlayerContext> _touchPlayers = new();
+
 	/// <summary>
-	/// Places a player's move/aim joysticks bottom-left/bottom-right of their share of the
-	/// screen — the full screen solo, or their half in local co-op (mirroring the split
-	/// viewport each already plays in).
+	/// Builds a player's full touch control cluster inside their share of the screen — the
+	/// whole screen solo, or their half in local co-op (mirroring the split viewport they
+	/// already play in). Move stick + knife live on the left always; the right side depends on
+	/// the current aim mode (see BuildAimCluster) and can change live from the pause menu.
 	/// </summary>
-	public void AddJoysticks(VirtualJoystick move, VirtualJoystick aim, int playerIndex, bool isCoop)
+	public void AddTouchControls(VirtualJoystick move, Player player, bool isCoop)
 	{
 		if (_joystickLayer == null) return;
 
-		var half = new Control
-		{
-			AnchorLeft   = isCoop && playerIndex == 1 ? 0.5f : 0f,
-			AnchorRight  = isCoop && playerIndex == 0 ? 0.5f : 1f,
-			AnchorTop    = 0f, AnchorBottom = 1f,
-			MouseFilter  = Control.MouseFilterEnum.Ignore,
-		};
-		_joystickLayer.AddChild(half);
+		// Same half (and same 90° turn in tabletop mode) the player's viewport uses, so the
+		// controls sit under their hands and read the right way up from their seat.
+		var (root, half) = MakePlayerHalf(player.PlayerIndex, isCoop);
+		_joystickLayer.AddChild(root);
 
-		const float margin = 100f;
-		// VirtualJoystick now owns its rect exactly (Size = Radius*2), so it's placed like any
+		// VirtualJoystick owns its rect exactly (Size = Radius*2), so it's placed like any
 		// other Control — by its top-left corner — with Radius subtracted to land the desired
-		// visual centre at (margin, -margin) from the anchored corner.
+		// visual centre at `TouchMargin` from the anchored corner.
 		move.AnchorLeft = 0f; move.AnchorRight = 0f; move.AnchorTop = 1f; move.AnchorBottom = 1f;
-		move.Position   = new Vector2(margin - move.Radius, -margin - move.Radius);
+		move.Position   = new Vector2(TouchMargin - move.Radius, -TouchMargin - move.Radius);
 		half.AddChild(move);
 
-		aim.AnchorLeft = 1f; aim.AnchorRight = 1f; aim.AnchorTop = 1f; aim.AnchorBottom = 1f;
-		aim.Position   = new Vector2(-margin - aim.Radius, -margin - aim.Radius);
-		half.AddChild(aim);
+		AddTouchButton(half, "Knife", new Vector2(90, 52), fromLeft: true,
+			centre: new Vector2(TouchMargin, -TouchMargin - move.Radius - 42f),
+			onPressed: player.ToggleKnife);
+
+		AddTouchButton(half, "Next", new Vector2(80, 50), fromLeft: false,
+			centre: new Vector2(-TouchMargin - AimZoneRadius - 58f, -TouchMargin),
+			onPressed: player.SwitchToNextWeapon);
+
+		AddTouchButton(half, "Prev", new Vector2(80, 50), fromLeft: false,
+			centre: new Vector2(-TouchMargin - AimZoneRadius - 58f, -TouchMargin - 62f),
+			onPressed: player.SwitchToPreviousWeapon);
+
+		var ctx = new TouchPlayerContext { Half = half, Player = player };
+		_touchPlayers.Add(ctx);
+		BuildAimCluster(ctx);
+	}
+
+	/// <summary>
+	/// (Re)builds the aim-mode-dependent half of a player's controls: a twin-stick aim
+	/// joystick (drag-to-aim-and-fire) when the aim mode needs manual direction, or a single
+	/// FIRE button when it doesn't — Auto-Aim already points at the nearest enemy, so a stick
+	/// there would have nothing to steer and would just be in the way. Mouse aim is never
+	/// selectable on mobile (no cursor), so the only choices reaching here are Movement and
+	/// Auto-Aim.
+	/// </summary>
+	private void BuildAimCluster(TouchPlayerContext ctx)
+	{
+		if (ctx.AimCluster != null && IsInstanceValid(ctx.AimCluster))
+			ctx.AimCluster.QueueFree();
+		ctx.Player.SetTouchFireHeld(false); // defensive: don't leave fire latched across a rebuild
+
+		var cluster = new Control
+		{
+			AnchorLeft = 1f, AnchorRight = 1f, AnchorTop = 1f, AnchorBottom = 1f,
+			MouseFilter = Control.MouseFilterEnum.Ignore,
+		};
+		ctx.Half.AddChild(cluster);
+		ctx.AimCluster = cluster;
+
+		bool autoAim = SettingsManager.Instance?.AimMode == AimMode.AutoAim;
+
+		if (autoAim)
+		{
+			// One big, easy-to-hit trigger — there's no direction to pick, just when to shoot.
+			var fire = AddTouchButton(cluster, "FIRE", Vector2.One * (AimZoneRadius * 2f),
+				fromLeft: false, centre: new Vector2(-TouchMargin, -TouchMargin), onPressed: null);
+			fire.ButtonDown += () => ctx.Player.SetTouchFireHeld(true);
+			fire.ButtonUp   += () => ctx.Player.SetTouchFireHeld(false);
+			ctx.Player.SetAimJoystick(null);
+		}
+		else
+		{
+			var joystickScene = ResourceLoader.Load<PackedScene>("res://Scenes/UI/VirtualJoystick.tscn");
+			var aim = joystickScene?.Instantiate<VirtualJoystick>();
+			if (aim == null) return;
+
+			aim.AnchorLeft = 1f; aim.AnchorRight = 1f; aim.AnchorTop = 1f; aim.AnchorBottom = 1f;
+			aim.Position   = new Vector2(-TouchMargin - aim.Radius, -TouchMargin - aim.Radius);
+			cluster.AddChild(aim);
+			ctx.Player.SetAimJoystick(aim);
+		}
+	}
+
+	/// <summary>Called after the aim mode changes (pause menu) to refresh every touch player's cluster.</summary>
+	private void RefreshTouchAimClusters()
+	{
+		foreach (var ctx in _touchPlayers)
+			if (IsInstanceValid(ctx.Half) && IsInstanceValid(ctx.Player))
+				BuildAimCluster(ctx);
+	}
+
+	// Places a touch button by its centre, measured from the bottom-left or bottom-right
+	// corner of the player's half.
+	private static Button AddTouchButton(Control parent, string text, Vector2 size,
+										 bool fromLeft, Vector2 centre, System.Action? onPressed)
+	{
+		var btn = new Button
+		{
+			Text        = text,
+			Size        = size,
+			AnchorLeft  = fromLeft ? 0f : 1f,
+			AnchorRight = fromLeft ? 0f : 1f,
+			AnchorTop   = 1f, AnchorBottom = 1f,
+			Position    = centre - size / 2f,
+		};
+		btn.AddThemeFontSizeOverride("font_size", 16);
+		if (onPressed != null) btn.Pressed += onPressed;
+		parent.AddChild(btn);
+		return btn;
 	}
 
 	// Called by the Resume button — goes through the same RPC path as the P key.

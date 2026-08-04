@@ -1,0 +1,302 @@
+{
+  ".claude/settings.local.json": {
+    "mtime": 1785785710.3949616,
+    "ast_hash": "bd55fa1922904ecf7e7401f3b0060093",
+    "semantic_hash": "bd55fa1922904ecf7e7401f3b0060093"
+  },
+  ".mcp.json": {
+    "mtime": 1784116509.3067193,
+    "ast_hash": "be9f9c68ea6dc0a697c9635c2e1acc21",
+    "semantic_hash": "be9f9c68ea6dc0a697c9635c2e1acc21"
+  },
+  "GlobalUsings.cs": {
+    "mtime": 1784090339.3605435,
+    "ast_hash": "25a98ca309e7f225e79334d89b85add5",
+    "semantic_hash": "25a98ca309e7f225e79334d89b85add5"
+  },
+  "NoBoxHead.csproj": {
+    "mtime": 1785785643.1434803,
+    "ast_hash": "57fbe3e263dd85468ec67a7bb3acfae1",
+    "semantic_hash": "57fbe3e263dd85468ec67a7bb3acfae1"
+  },
+  "NoBoxHead.sln": {
+    "mtime": 1785786594.2621062,
+    "ast_hash": "3e2c1e18a5cd357ce2b70f2b2e6fe200",
+    "semantic_hash": "3e2c1e18a5cd357ce2b70f2b2e6fe200"
+  },
+  "Scripts/Arena/Arena.cs": {
+    "mtime": 1785851365.0758214,
+    "ast_hash": "dd29c9d7290188ce0462afedb04f5f80",
+    "semantic_hash": "dd29c9d7290188ce0462afedb04f5f80"
+  },
+  "Scripts/Arena/ArenaLayouts.cs": {
+    "mtime": 1784146619.2211683,
+    "ast_hash": "006b56c68504c50dfc2b0c081cc7b5ea",
+    "semantic_hash": "006b56c68504c50dfc2b0c081cc7b5ea"
+  },
+  "Scripts/Autoloads/AudioManager.cs": {
+    "mtime": 1784692651.002899,
+    "ast_hash": "0e66a12c9a0e155bad7f23aa89339a5a",
+    "semantic_hash": "0e66a12c9a0e155bad7f23aa89339a5a"
+  },
+  "Scripts/Autoloads/GameManager.cs": {
+    "mtime": 1785847918.0560286,
+    "ast_hash": "9c4fa195d6af737847fe580f9d3014e5",
+    "semantic_hash": "9c4fa195d6af737847fe580f9d3014e5"
+  },
+  "Scripts/Autoloads/NetworkManager.cs": {
+    "mtime": 1785847828.4337707,
+    "ast_hash": "4a91db2d29be3cf916cb156a9a440487",
+    "semantic_hash": "4a91db2d29be3cf916cb156a9a440487"
+  },
+  "Scripts/Autoloads/ScoreManager.cs": {
+    "mtime": 1784281368.616488,
+    "ast_hash": "40382926044fb60291a0d34a8f6fae77",
+    "semantic_hash": "40382926044fb60291a0d34a8f6fae77"
+  },
+  "Scripts/Autoloads/SettingsManager.cs": {
+    "mtime": 1785788932.290999,
+    "ast_hash": "30ffde0c97ed162c35b78dceaedae38e",
+    "semantic_hash": "30ffde0c97ed162c35b78dceaedae38e"
+  },
+  "Scripts/Camera/CameraManager.cs": {
+    "mtime": 1785848086.6415894,
+    "ast_hash": "3c60b72c77492d347dbc0d5ab1d9dbbb",
+    "semantic_hash": "3c60b72c77492d347dbc0d5ab1d9dbbb"
+  },
+  "Scripts/Core/Platform.cs": {
+    "mtime": 1785844985.5080388,
+    "ast_hash": "9ed7c73ae60f7f72f328ed1e9ccefe97",
+    "semantic_hash": "9ed7c73ae60f7f72f328ed1e9ccefe97"
+  },
+  "Scripts/Effects/BloodPainter.cs": {
+    "mtime": 1784692441.0680006,
+    "ast_hash": "466671a80774da35de7517482cdf9412",
+    "semantic_hash": "466671a80774da35de7517482cdf9412"
+  },
+  "Scripts/Effects/BloodSystem.cs": {
+    "mtime": 1784692465.9776638,
+    "ast_hash": "048318f0f1df3cd805584525b4cecad6",
+    "semantic_hash": "048318f0f1df3cd805584525b4cecad6"
+  },
+  "Scripts/Entities/AmmoPack.cs": {
+    "mtime": 1784955744.9126034,
+    "ast_hash": "302171e3cc139d61765eaeb14759e2ce",
+    "semantic_hash": "302171e3cc139d61765eaeb14759e2ce"
+  },
+  "Scripts/Entities/Barrel.cs": {
+    "mtime": 1784215328.7496138,
+    "ast_hash": "be07fc87c2593612871cbb3badfd9ca9",
+    "semantic_hash": "be07fc87c2593612871cbb3badfd9ca9"
+  },
+  "Scripts/Entities/Bullet.cs": {
+    "mtime": 1784692478.522793,
+    "ast_hash": "9d023255e98e545d233507b3e257e3df",
+    "semantic_hash": "9d023255e98e545d233507b3e257e3df"
+  },
+  "Scripts/Entities/Demon.cs": {
+    "mtime": 1784954986.50133,
+    "ast_hash": "318de95c06cd762fcf970f401e0c434f",
+    "semantic_hash": "318de95c06cd762fcf970f401e0c434f"
+  },
+  "Scripts/Entities/DemonProjectile.cs": {
+    "mtime": 1784117923.4851122,
+    "ast_hash": "ff6f332311b070efdbfec88c2b82717d",
+    "semantic_hash": "ff6f332311b070efdbfec88c2b82717d"
+  },
+  "Scripts/Entities/Enemy.cs": {
+    "mtime": 1785850502.332919,
+    "ast_hash": "adfc3bf28dc4187c91e366ba5bf7a042",
+    "semantic_hash": "adfc3bf28dc4187c91e366ba5bf7a042"
+  },
+  "Scripts/Entities/GrenadeProjectile.cs": {
+    "mtime": 1784692720.0101192,
+    "ast_hash": "0a91ea9712c8eb29e3e874792609acd3",
+    "semantic_hash": "0a91ea9712c8eb29e3e874792609acd3"
+  },
+  "Scripts/Entities/HealthPack.cs": {
+    "mtime": 1784954973.3122373,
+    "ast_hash": "0f33cecb0c531b6bb93cfd78c96964dc",
+    "semantic_hash": "0f33cecb0c531b6bb93cfd78c96964dc"
+  },
+  "Scripts/Entities/Ogre.cs": {
+    "mtime": 1785850712.9973748,
+    "ast_hash": "a63eebfb969295dbcd321e328c798c63",
+    "semantic_hash": "a63eebfb969295dbcd321e328c798c63"
+  },
+  "Scripts/Entities/Player.cs": {
+    "mtime": 1785831210.3596892,
+    "ast_hash": "0456550a24f4b286aff54e5daad0c76d",
+    "semantic_hash": "0456550a24f4b286aff54e5daad0c76d"
+  },
+  "Scripts/Entities/PlayerSkins.cs": {
+    "mtime": 1785788906.075993,
+    "ast_hash": "dc2e4b9a367729894c05333bd6697967",
+    "semantic_hash": "dc2e4b9a367729894c05333bd6697967"
+  },
+  "Scripts/Entities/Sprinter.cs": {
+    "mtime": 1785850706.4930375,
+    "ast_hash": "3246fb9994d0dd39347c8e221580ed55",
+    "semantic_hash": "3246fb9994d0dd39347c8e221580ed55"
+  },
+  "Scripts/IDamageable.cs": {
+    "mtime": 1784117903.638462,
+    "ast_hash": "59c2ac6fa2d17d8d7e6763a59a23f48a",
+    "semantic_hash": "59c2ac6fa2d17d8d7e6763a59a23f48a"
+  },
+  "Scripts/IKnockbackable.cs": {
+    "mtime": 1784138574.924425,
+    "ast_hash": "b60515eae4fd3ac1c7a08e8ed00dafa6",
+    "semantic_hash": "b60515eae4fd3ac1c7a08e8ed00dafa6"
+  },
+  "Scripts/Spawning/WaveSpawner.cs": {
+    "mtime": 1784692016.3649917,
+    "ast_hash": "96bf4662477ac4741e6d598a67462b8b",
+    "semantic_hash": "96bf4662477ac4741e6d598a67462b8b"
+  },
+  "Scripts/UI/HUD.cs": {
+    "mtime": 1785849709.7547934,
+    "ast_hash": "07e1e8f1720fc91fde40fee2cb16c4eb",
+    "semantic_hash": "07e1e8f1720fc91fde40fee2cb16c4eb"
+  },
+  "Scripts/UI/LobbyUI.cs": {
+    "mtime": 1785848854.1273577,
+    "ast_hash": "9ad5a1878a3027e17bb03a1ced987efd",
+    "semantic_hash": "9ad5a1878a3027e17bb03a1ced987efd"
+  },
+  "Scripts/UI/MainMenuUI.cs": {
+    "mtime": 1785831183.7870288,
+    "ast_hash": "45920b00e785d82f4440df1aa0349053",
+    "semantic_hash": "45920b00e785d82f4440df1aa0349053"
+  },
+  "Scripts/UI/SettingsUI.cs": {
+    "mtime": 1785848839.8291192,
+    "ast_hash": "4b027bddd015970a7ae044a862647e56",
+    "semantic_hash": "4b027bddd015970a7ae044a862647e56"
+  },
+  "Scripts/UI/VirtualJoystick.cs": {
+    "mtime": 1785845453.0837584,
+    "ast_hash": "6973e3569adc8ac027c74a2b003b2e24",
+    "semantic_hash": "6973e3569adc8ac027c74a2b003b2e24"
+  },
+  "Scripts/Weapons/BarrelWeapon.cs": {
+    "mtime": 1784692701.7436128,
+    "ast_hash": "a807fdc31d79daa5b3bbffc4961f22f8",
+    "semantic_hash": "a807fdc31d79daa5b3bbffc4961f22f8"
+  },
+  "Scripts/Weapons/GrenadeLauncher.cs": {
+    "mtime": 1784692709.8751593,
+    "ast_hash": "52060475dd4f6c92c3f59a357f5d0891",
+    "semantic_hash": "52060475dd4f6c92c3f59a357f5d0891"
+  },
+  "Scripts/Weapons/Knife.cs": {
+    "mtime": 1784692715.3313658,
+    "ast_hash": "535ef3a235a1b63d02abd07c4225b99f",
+    "semantic_hash": "535ef3a235a1b63d02abd07c4225b99f"
+  },
+  "Scripts/Weapons/MachineGun.cs": {
+    "mtime": 1784692697.6026773,
+    "ast_hash": "10ff1af0074bbd9b6767bfd289000302",
+    "semantic_hash": "10ff1af0074bbd9b6767bfd289000302"
+  },
+  "Scripts/Weapons/Pistol.cs": {
+    "mtime": 1784138784.5297964,
+    "ast_hash": "73bac6e8c8646178c655f2e577c0cf34",
+    "semantic_hash": "73bac6e8c8646178c655f2e577c0cf34"
+  },
+  "Scripts/Weapons/Shotgun.cs": {
+    "mtime": 1784692692.6832385,
+    "ast_hash": "80d2422ea59ca84e515ff5cecf859e10",
+    "semantic_hash": "80d2422ea59ca84e515ff5cecf859e10"
+  },
+  "Scripts/Weapons/Weapon.cs": {
+    "mtime": 1784692687.9100187,
+    "ast_hash": "f4f9a06cb39fb034de2c1b0120d9ab22",
+    "semantic_hash": "f4f9a06cb39fb034de2c1b0120d9ab22"
+  },
+  "Tools/generate_ammo_sprites.py": {
+    "mtime": 1784955703.3708687,
+    "ast_hash": "ab2cd25ca4593e7bea80d4258fcb09e6",
+    "semantic_hash": "ab2cd25ca4593e7bea80d4258fcb09e6"
+  },
+  "Tools/generate_player_skins.py": {
+    "mtime": 1785788868.6602697,
+    "ast_hash": "1dff63c48b512d5c570f50c0db3fd8f2",
+    "semantic_hash": "1dff63c48b512d5c570f50c0db3fd8f2"
+  },
+  "Tools/generate_sfx.py": {
+    "mtime": 1784692614.829352,
+    "ast_hash": "5d86cc0bb8b143a4a816c6f625f2716a",
+    "semantic_hash": "5d86cc0bb8b143a4a816c6f625f2716a"
+  },
+  "Tools/generate_weapon_sprites.py": {
+    "mtime": 1784955043.5284092,
+    "ast_hash": "cb0cf857366d2f3683e95206b4f06da6",
+    "semantic_hash": "cb0cf857366d2f3683e95206b4f06da6"
+  },
+  "Assets/Audio/SFX/barrel_place.wav": {
+    "mtime": 1784692630.6309824,
+    "ast_hash": "98a55f7d8aca04c433d2cdc52e69fa78",
+    "semantic_hash": "98a55f7d8aca04c433d2cdc52e69fa78"
+  },
+  "Assets/Audio/SFX/enemy_death.wav": {
+    "mtime": 1784692630.5864735,
+    "ast_hash": "26d682a5db9e9b6795746ff2d6ba844b",
+    "semantic_hash": "26d682a5db9e9b6795746ff2d6ba844b"
+  },
+  "Assets/Audio/SFX/explosion.wav": {
+    "mtime": 1784692630.5502691,
+    "ast_hash": "cb009984927a4ac042624d9e233327a5",
+    "semantic_hash": "cb009984927a4ac042624d9e233327a5"
+  },
+  "Assets/Audio/SFX/game_over.wav": {
+    "mtime": 1784692630.684222,
+    "ast_hash": "91528b4bcb4ce748f4008619cefb5dc5",
+    "semantic_hash": "91528b4bcb4ce748f4008619cefb5dc5"
+  },
+  "Assets/Audio/SFX/hit.wav": {
+    "mtime": 1784692630.558273,
+    "ast_hash": "a945bfb84c34a2c870876ed69ed13106",
+    "semantic_hash": "a945bfb84c34a2c870876ed69ed13106"
+  },
+  "Assets/Audio/SFX/knife.wav": {
+    "mtime": 1784692630.475088,
+    "ast_hash": "0b4e22ed814e6cd86591f5732a025708",
+    "semantic_hash": "0b4e22ed814e6cd86591f5732a025708"
+  },
+  "Assets/Audio/SFX/machinegun.wav": {
+    "mtime": 1784692630.4635653,
+    "ast_hash": "6ac451d22a19adeeadc6f95d329636d9",
+    "semantic_hash": "6ac451d22a19adeeadc6f95d329636d9"
+  },
+  "Assets/Audio/SFX/pickup_ammo.wav": {
+    "mtime": 1784692630.611037,
+    "ast_hash": "c2974cfc1f35a1b6e04009d5ff774132",
+    "semantic_hash": "c2974cfc1f35a1b6e04009d5ff774132"
+  },
+  "Assets/Audio/SFX/pickup_health.wav": {
+    "mtime": 1784692630.6219556,
+    "ast_hash": "64797a70cbaef9b6eca97130fe982d1a",
+    "semantic_hash": "64797a70cbaef9b6eca97130fe982d1a"
+  },
+  "Assets/Audio/SFX/pistol.wav": {
+    "mtime": 1784692630.4313378,
+    "ast_hash": "a87c2f35fef873b1b8aeb369850be198",
+    "semantic_hash": "a87c2f35fef873b1b8aeb369850be198"
+  },
+  "Assets/Audio/SFX/player_hurt.wav": {
+    "mtime": 1784692630.6045153,
+    "ast_hash": "bfa07d258ac11c948722c0c7e8a293cc",
+    "semantic_hash": "bfa07d258ac11c948722c0c7e8a293cc"
+  },
+  "Assets/Audio/SFX/shotgun.wav": {
+    "mtime": 1784692630.4540403,
+    "ast_hash": "3a8c9876371a94856afd9381da53dc7b",
+    "semantic_hash": "3a8c9876371a94856afd9381da53dc7b"
+  },
+  "Assets/Audio/SFX/wave_start.wav": {
+    "mtime": 1784692630.6500125,
+    "ast_hash": "079eda6058aad059045e816a9183b9fa",
+    "semantic_hash": "079eda6058aad059045e816a9183b9fa"
+  }
+}

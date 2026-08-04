@@ -35,8 +35,8 @@ public partial class Arena : Node2D
 	private Color _floorColor    = new(0.18f, 0.18f, 0.18f);
 	private Color _obstacleColor = new(0.5f, 0.4f, 0.2f);
 
-	private Node2D?   _players;
-	private Node2D?   _enemies;
+	// Single Y-sorted parent holding every player and enemy — see WireUpChildren().
+	private Node2D?   _entityLayer;
 	private Node2D?   _bullets;
 	private Node2D?   _obstaclesRuntime;
 	private Node2D?   _enemySpawnPoints;
@@ -57,6 +57,14 @@ public partial class Arena : Node2D
 
 	public override void _Ready()
 	{
+		// GameManager is an autoload — it survives a scene reload. Without this, clicking
+		// Restart/Play Again (both just call ReloadCurrentScene, bypassing MainMenu's own
+		// ResetGame call) left the OLD, now-freed Player instance sitting in GameManager's
+		// _players list forever. The new player would register alongside it, so the list
+		// never dropped back to zero on death — Game Over silently stopped firing on any
+		// playthrough after the first one in the same session.
+		GameManager.Instance?.ResetGame();
+
 		ResolveArena();
 		BuildArena();
 		BuildNavigationRegion();
@@ -75,6 +83,21 @@ public partial class Arena : Node2D
 		GameManager.Instance!.GameOver    += OnGameOver;
 		GameManager.Instance!.WaveStarted += OnWaveStartedRevive;
 		NetworkManager.Instance.PlayerDisconnected += OnPeerDisconnected;
+	}
+
+	// GameManager/NetworkManager are autoloads and outlive this Arena across a scene reload
+	// (Restart/Play Again both just call ReloadCurrentScene). Left subscribed, the OLD Arena
+	// instance would keep reacting — e.g. OnGameOver reaching into a disposed HUD — every time
+	// the NEW playthrough's GameManager events fired.
+	public override void _ExitTree()
+	{
+		if (GameManager.Instance != null)
+		{
+			GameManager.Instance.GameOver    -= OnGameOver;
+			GameManager.Instance.WaveStarted -= OnWaveStartedRevive;
+		}
+		if (NetworkManager.Instance != null)
+			NetworkManager.Instance.PlayerDisconnected -= OnPeerDisconnected;
 	}
 
 	// ── Pause ─────────────────────────────────────────────────────────────────
@@ -269,8 +292,15 @@ public partial class Arena : Node2D
 
 	private void WireUpChildren()
 	{
-		_players          = GetOrCreate<Node2D>("Players");
-		_enemies          = GetOrCreate<Node2D>("Enemies");
+		// Players and enemies must live directly under ONE Y-sorted node. Godot only merges
+		// nodes into a single Y-sort when they are siblings under the sorted parent; separate
+		// "Players" and "Enemies" containers both sit at y=0, so they tie in the parent's sort
+		// and fall back to scene-tree order — every enemy then draws in front of every player
+		// regardless of where they actually are. A zombie standing above the player looked
+		// pasted on top of them rather than standing behind them, which is what read as the
+		// zombie being glued on. Sorted together, whoever is lower on screen draws in front.
+		_entityLayer      = GetOrCreate<Node2D>("Entities");
+		_entityLayer.YSortEnabled = true;
 		_bullets          = GetOrCreate<Node2D>("Bullets");
 		_obstaclesRuntime = GetOrCreate<Node2D>("RuntimeObstacles");
 		_enemySpawnPoints = GetOrCreate<Node2D>("EnemySpawnPoints");
@@ -281,13 +311,19 @@ public partial class Arena : Node2D
 		foreach (var pos in PlayerSpawnPositions)
 			_playerSpawnPoints.AddChild(new Marker2D { Position = pos });
 
-		var ws = new WaveSpawner();
-		ws.EnemyContainerPath   = _enemies.GetPath();
+		var ws = new WaveSpawner { Name = "WaveSpawner" };
+		ws.EnemyContainerPath   = _entityLayer.GetPath();
 		ws.SpawnPointsPath      = _enemySpawnPoints.GetPath();
 		ws.BulletsContainerPath = _bullets.GetPath();
 		AddChild(ws);
 
-		_cameraManager = new CameraManager();
+		// Explicit names matter here: WaveSpawner's enemy-spawn RPCs are routed by NodePath,
+		// which only resolves on other peers if every node along the path is named the same
+		// way on every peer. Without this, an auto-generated name like "@WaveSpawner@23" could
+		// drift out of sync between the host and a joining client (e.g. if anything upstream
+		// created even one extra/fewer sibling node first) and enemy RPCs would silently never
+		// reach the client at all — no error, just an empty arena for them.
+		_cameraManager = new CameraManager { Name = "CameraManager" };
 		AddChild(_cameraManager);
 
 		var hudScene = ResourceLoader.Load<PackedScene>("res://Scenes/HUD.tscn");
@@ -402,7 +438,7 @@ public partial class Arena : Node2D
 		player.SetMultiplayerAuthority((int)peerId);
 		player.GlobalPosition = PlayerSpawnPositions[playerIndex % PlayerSpawnPositions.Length];
 
-		_players!.AddChild(player);
+		_entityLayer!.AddChild(player);
 		_spawnedPlayers.Add(player);
 
 		// Give starting weapons (name assigned automatically by AddWeapon).
@@ -433,7 +469,6 @@ public partial class Arena : Node2D
 				{
 					_hud.SwitchWeaponCallback     = player.SwitchToNextWeapon;
 					_hud.SwitchWeaponPrevCallback = player.SwitchToPreviousWeapon;
-					_hud.KnifeCallback            = player.ToggleKnife;
 					_hud.BindToPlayer(player, pistol);
 				}
 			}
@@ -445,12 +480,6 @@ public partial class Arena : Node2D
 				player.HealthChanged += (cur, max)  => _hud?.UpdateHealthP2(cur, max);
 				player.WeaponChanged += name         => _hud?.UpdateWeaponP2(name);
 
-				if (_hud != null)
-				{
-					_hud.SwitchWeaponCallbackP2     = player.SwitchToNextWeapon;
-					_hud.SwitchWeaponPrevCallbackP2 = player.SwitchToPreviousWeapon;
-					_hud.KnifeCallbackP2            = player.ToggleKnife;
-				}
 				_hud?.BindToPlayerP2(player, pistol);
 			}
 
@@ -481,7 +510,7 @@ public partial class Arena : Node2D
 
 			// Touch controls only: on desktop/editor builds Player reads WASD/mouse directly
 			// and these are never created, so no virtual joystick appears outside mobile.
-			if (OS.HasFeature("mobile"))
+			if (Platform.IsMobile)
 				SetupLocalJoysticks(player);
 		}
 
@@ -493,12 +522,14 @@ public partial class Arena : Node2D
 		var joystickScene = ResourceLoader.Load<PackedScene>("res://Scenes/UI/VirtualJoystick.tscn");
 		if (joystickScene == null || _hud == null) return;
 
+		// Only the move stick is unconditional. Whether aiming uses a second stick or a single
+		// FIRE button depends on the selected aim mode, so the HUD builds (and can later
+		// rebuild) that half on its own — see HUD.AddTouchControls.
 		var move = joystickScene.Instantiate<VirtualJoystick>();
-		var aim  = joystickScene.Instantiate<VirtualJoystick>();
-		player.SetJoysticks(move, aim);
+		player.SetJoysticks(move, null);
 
 		bool isCoop = SettingsManager.Instance?.GameMode == GameMode.LocalCoop;
-		_hud.AddJoysticks(move, aim, player.PlayerIndex, isCoop);
+		_hud.AddTouchControls(move, player, isCoop);
 	}
 
 	private void RefreshCamera()
@@ -506,14 +537,20 @@ public partial class Arena : Node2D
 		var validPlayers = _spawnedPlayers
 			.FindAll(p => IsInstanceValid(p))
 			.ConvertAll(p => (Node2D)p);
-		_cameraManager?.Setup(validPlayers, _splitScreenRoot!);
+
+		// Online each peer renders its own screen, so the camera must follow that peer's
+		// own player. Passing null keeps the offline behaviour (shared or split-screen).
+		Node2D? follow = NetworkManager.IsNetworked && IsInstanceValid(_localPlayer)
+			? _localPlayer
+			: null;
+		_cameraManager?.Setup(validPlayers, _splitScreenRoot!, follow);
 	}
 
 	// ── Events ────────────────────────────────────────────────────────────────
 
 	private void OnPeerDisconnected(long peerId)
 	{
-		var player = _players?.GetNodeOrNull<Player>(
+		var player = _entityLayer?.GetNodeOrNull<Player>(
 			$"Player{NetworkManager.Instance.PeerPlayerIndex.GetValueOrDefault(peerId, -1)}");
 		if (player == null) return;
 		_cameraManager?.RemovePlayer(player);

@@ -5,6 +5,14 @@ namespace NoBoxHead;
 /// <summary>
 /// Zombie enemy. Navigates around walls using NavigationAgent2D.
 /// Simulated on host; state replicated via RPC.
+///
+/// Collision (set in Enemy.tscn): layer 4, mask 1 — walls and barrels only. Player contact is
+/// handled in code by CrowdSeparation instead, because neither collision-layer arrangement
+/// gives the behaviour we want: masking the player back lets MoveAndSlide's depenetration
+/// bulldoze the enemy along in front of a walking player (measured at 270px of travel with the
+/// gap constant to two decimals — the "glued zombie" bug), while making the collision mutual
+/// turns a pack into an impassable wall. Contact damage is a distance check (see AttackRange),
+/// never a physical collision, so nothing here depends on the two bodies blocking each other.
 /// </summary>
 public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
 {
@@ -102,7 +110,16 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
             dir = (target.GlobalPosition - GlobalPosition).Normalized();
         }
 
-        Velocity = dir * MoveSpeed;
+        // Stop pushing forward once within melee range of the player (chasing a barrel still
+        // presses all the way in, since a barrel doesn't fight back). Continuing to steer
+        // straight into the player made MoveAndSlide's collision-sliding keep the zombie
+        // plastered against the player's hitbox even while it was already landing hits —
+        // instead of parking beside them, it read as "stuck". Standing still to attack means
+        // it only stays put while the player stays in range; step away and it has to give
+        // chase again, coming unstuck as a side effect rather than needing special-casing.
+        float distToTarget = GlobalPosition.DistanceTo(target.GlobalPosition);
+        bool  inMeleeRange = _targetBarrel == null && distToTarget <= AttackRange;
+        Velocity = inMeleeRange ? Vector2.Zero : dir * MoveSpeed;
 
         // Separation from other enemies.
         foreach (var node in GetTree().GetNodesInGroup("enemies"))
@@ -115,6 +132,12 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
             }
         }
 
+        // Step aside for a player pushing through, so a pack is a crowd to shoulder past
+        // rather than a wall (see CrowdSeparation). Reusing AttackRange keeps the distance it
+        // holds off at identical to the one it stops at, so a zombie shoved inward by the pack
+        // behind it drifts back out to where a lone zombie would have parked anyway.
+        Velocity += CrowdSeparation.AwayFromPlayers(this, AttackRange);
+
         // Apply and decay knockback impulse.
         if (_knockback.LengthSquared() > 1f)
         {
@@ -126,13 +149,17 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
             _knockback = Vector2.Zero;
         }
 
+        // Captured before MoveAndSlide can shorten Velocity on contact, so a zombie standing
+        // still to attack (Velocity already ~0) never misreads that as "clipped a corner".
+        float intendedDist = Velocity.Length() * (float)delta;
+
         MoveAndSlide();
 
         // ── Stuck recovery ────────────────────────────────────────────────────
         // If the zombie moved much less than expected (clipped against a corner),
         // after a short delay try nudging sideways to slip past the obstacle.
-        float movedDist   = GlobalPosition.DistanceTo(_prevPosition);
-        float expectedDist = MoveSpeed * (float)delta;
+        float movedDist    = GlobalPosition.DistanceTo(_prevPosition);
+        float expectedDist = intendedDist;
         if (expectedDist > 0f && movedDist < expectedDist * StuckMinRatio)
         {
             _stuckTimer += (float)delta;

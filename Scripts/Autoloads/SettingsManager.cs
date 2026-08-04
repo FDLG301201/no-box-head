@@ -15,6 +15,8 @@ public partial class SettingsManager : Node
     public AimMode    AimMode    { get; set; } = AimMode.Movement;
     // 0 = muted, 1 = full. Persisted.
     public float      SfxVolume  { get; set; } = 0.8f;
+    // Index into PlayerSkins.All. Persisted.
+    public int        SkinIndex  { get; set; }
     // Session-only, not persisted to disk.
     public GameMode   GameMode   { get; set; } = GameMode.SinglePlayer;
     public ArenaType  ArenaType  { get; set; } = ArenaType.Classic;
@@ -62,6 +64,7 @@ public partial class SettingsManager : Node
         _config.SetValue("camera",   "mode",       (int)CameraMode);
         _config.SetValue("controls", "aim_mode",   (int)AimMode);
         _config.SetValue("audio",    "sfx_volume", SfxVolume);
+        _config.SetValue("player",   "skin",       SkinIndex);
         foreach (var (action, key) in _bindings)
             _config.SetValue("bindings", action, (int)key);
         _config.Save(SettingsPath);
@@ -73,6 +76,7 @@ public partial class SettingsManager : Node
         CameraMode = (CameraMode)(int)_config.GetValue("camera",   "mode",     (int)CameraMode.Shared);
         AimMode    = (AimMode)   (int)_config.GetValue("controls", "aim_mode", (int)AimMode.Movement);
         SfxVolume  = (float)     _config.GetValue("audio", "sfx_volume", 0.8f);
+        SkinIndex  = (int)       _config.GetValue("player", "skin", 0);
 
         foreach (var (action, _) in BindableActions)
         {

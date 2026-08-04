@@ -32,6 +32,19 @@ public partial class NetworkManager : Node
     [Signal] public delegate void ServerCreatedEventHandler(string pin);
     [Signal] public delegate void GamesDiscoveredEventHandler();
     [Signal] public delegate void PlayerIndexAssignedEventHandler(int index);
+    // Fired on every peer (host included) at the exact moment the host presses "Start Game",
+    // so nobody races ahead into Arena.tscn on their own — see BroadcastGameStarting.
+    [Signal] public delegate void GameStartingEventHandler();
+
+    /// <summary>
+    /// True only when a real network session is active. Note that Godot's
+    /// Multiplayer.HasMultiplayerPeer() is NOT a reliable offline check: the API defaults to
+    /// an OfflineMultiplayerPeer, so it reports true until something nulls the peer (which
+    /// only happens once MainMenu calls Disconnect()).
+    /// </summary>
+    public static bool IsNetworked =>
+        Instance != null &&
+        Instance.Multiplayer.MultiplayerPeer is not null and not OfflineMultiplayerPeer;
 
     public bool IsHost { get; private set; }
     public string CurrentPin { get; private set; } = "";
@@ -239,6 +252,16 @@ public partial class NetworkManager : Node
         GD.Print($"[Network] My player index: {index}");
         EmitSignal(SignalName.PlayerIndexAssigned, index);
     }
+
+    // Host → everyone (including itself, CallLocal = true): the game is starting now. Every
+    // peer's LobbyUI listens for this and changes to Arena.tscn at the same moment, instead of
+    // a client jumping there the instant they connect — which used to drop them into an empty
+    // arena (no local player spawned yet, no enemies) until the host got around to starting.
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
+    private void NotifyGameStarting() => EmitSignal(SignalName.GameStarting);
+
+    /// <summary>Host-only: tells every connected peer to transition to the arena now.</summary>
+    public void BroadcastGameStarting() => Rpc(MethodName.NotifyGameStarting);
 
     // ── PUBLIC HELPERS ────────────────────────────────────────────────────────
 

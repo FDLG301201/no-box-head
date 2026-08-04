@@ -55,6 +55,11 @@ public partial class Player : CharacterBody2D
     private Vector2           _lastAimDir = Vector2.Up;
     // Tracks KP_0 held state for P2 (physical key check, Num Lock independent).
     private bool              _p2ShootHeld;
+    // Held state of the on-screen fire button (touch builds only).
+    private bool              _touchFireHeld;
+
+    /// <summary>Called by the mobile HUD's fire button on press/release.</summary>
+    public void SetTouchFireHeld(bool held) => _touchFireHeld = held;
 
     private const float AutoAimRange   = 700f;
 
@@ -158,8 +163,10 @@ public partial class Player : CharacterBody2D
         if (_aimJoystick?.IsActive == true) return _aimJoystick.InputVector;
 
         var mode = SettingsManager.Instance?.AimMode ?? AimMode.Movement;
-        // Mouse aim requires a single cursor — not usable in local co-op.
-        if (SettingsManager.Instance?.GameMode == GameMode.LocalCoop && mode == AimMode.Mouse)
+        // Mouse aim needs a single cursor: unusable in local co-op, and there is no cursor
+        // at all on touch devices. Fall back to movement aiming in both cases.
+        if (mode == AimMode.Mouse &&
+            (SettingsManager.Instance?.GameMode == GameMode.LocalCoop || Platform.IsMobile))
             mode = AimMode.Movement;
         Vector2 aim;
 
@@ -197,7 +204,11 @@ public partial class Player : CharacterBody2D
 
     private bool ShouldShoot()
     {
+        // Dragging the aim stick fires (twin-stick), and the fire button covers the aim modes
+        // that don't need the stick at all (Movement / Auto-Aim) — without it those modes are
+        // unusable on touch, since there'd be no way to shoot without overriding the aim.
         if (_aimJoystick?.IsActive == true) return true;
+        if (_touchFireHeld) return true;
         if (PlayerIndex == 0) return Input.IsActionPressed("shoot");
         return _p2ShootHeld;
     }
@@ -357,10 +368,13 @@ public partial class Player : CharacterBody2D
         // (239, 301) — offset math below keeps that point pinned to the node's origin
         // (where the collision circle and pathing both live) regardless of scale.
         const float scale = 0.078f;
-        _spriteTint = PlayerIndex == 0 ? Colors.White : new Color(1f, 0.55f, 0.55f);
+        // Each slot gets its own skin (offset from the chosen one), so players stay
+        // distinguishable without tinting the artwork.
+        var skin = PlayerSkins.ForPlayer(PlayerIndex);
+        _spriteTint = Colors.White;
         _visual = new Sprite2D
         {
-            Texture  = ResourceLoader.Load<Texture2D>("res://Assets/Sprites/Player/jugador.png"),
+            Texture  = ResourceLoader.Load<Texture2D>(skin.Path),
             Centered = false,
             Scale    = new Vector2(scale, scale),
             Position = new Vector2(-239.5f * scale, -301.5f * scale),
@@ -514,4 +528,8 @@ public partial class Player : CharacterBody2D
         _moveJoystick = move;
         _aimJoystick  = aim;
     }
+
+    // Aim scheme (stick vs auto-aim + fire button) can change live via the pause menu on
+    // mobile, so it's swappable independently of the move stick.
+    public void SetAimJoystick(VirtualJoystick? aim) => _aimJoystick = aim;
 }
