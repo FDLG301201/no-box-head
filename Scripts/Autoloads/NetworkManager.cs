@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -110,20 +111,73 @@ public partial class NetworkManager : Node
         try
         {
             _broadcastSender = new UdpClient { EnableBroadcast = true };
-            string localIp = GetLocalIpAddress();
             string hostName = OS.GetEnvironment("USERNAME");
             if (string.IsNullOrEmpty(hostName)) hostName = "Host";
 
             while (!token.IsCancellationRequested)
             {
-                string msg = $"{DiscoveryMagic}|{CurrentPin}|{hostName}|{localIp}|{GamePort}";
-                byte[] data = Encoding.UTF8.GetBytes(msg);
-                await _broadcastSender.SendAsync(data, data.Length, "255.255.255.255", DiscoveryPort);
+                // One packet per local network, each carrying that network's own address.
+                // A phone hosting while sharing its mobile data has TWO networks: the cellular
+                // one (which is the default route, so a single 255.255.255.255 send and
+                // GetLocalIpAddress both pick it) and the hotspot LAN where the other player
+                // actually is. Advertising only the default route meant the phone announced an
+                // unreachable carrier IP onto a network nobody was listening on — which is why
+                // a PC-hosted game was visible to the phone but never the other way round.
+                foreach (var (broadcast, local) in GetBroadcastTargets())
+                {
+                    string msg = $"{DiscoveryMagic}|{CurrentPin}|{hostName}|{local}|{GamePort}";
+                    byte[] data = Encoding.UTF8.GetBytes(msg);
+                    try { await _broadcastSender.SendAsync(data, data.Length, broadcast.ToString(), DiscoveryPort); }
+                    catch (SocketException) { /* interface went away mid-loop; try the rest */ }
+                }
+
+                // Kept as a fallback for any platform where interface enumeration comes back
+                // empty (some Android builds restrict it), so discovery never gets worse.
+                string fallback = $"{DiscoveryMagic}|{CurrentPin}|{hostName}|{GetLocalIpAddress()}|{GamePort}";
+                byte[] fallbackData = Encoding.UTF8.GetBytes(fallback);
+                try { await _broadcastSender.SendAsync(fallbackData, fallbackData.Length, "255.255.255.255", DiscoveryPort); }
+                catch (SocketException) { }
+
                 await Task.Delay(1000, token);
             }
         }
         catch (OperationCanceledException) { }
         catch (Exception e) { GD.PrintErr($"[Network] Broadcast error: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Every up, non-loopback IPv4 network this machine is on, as (directed broadcast, own
+    /// address). Sending one packet per entry reaches a hotspot LAN even when the default
+    /// route points somewhere else entirely, like a phone's mobile data.
+    /// </summary>
+    public static List<(IPAddress Broadcast, IPAddress Local)> GetBroadcastTargets()
+    {
+        var targets = new List<(IPAddress, IPAddress)>();
+        try
+        {
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+
+                foreach (var addr in nic.GetIPProperties().UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                    var mask = addr.IPv4Mask;
+                    if (mask == null) continue;
+
+                    var ip        = addr.Address.GetAddressBytes();
+                    var maskBytes = mask.GetAddressBytes();
+                    var broadcast = new byte[4];
+                    for (int i = 0; i < 4; i++)
+                        broadcast[i] = (byte)(ip[i] | ~maskBytes[i]);
+
+                    targets.Add((new IPAddress(broadcast), addr.Address));
+                }
+            }
+        }
+        catch (Exception e) { GD.PrintErr($"[Network] Interface scan failed: {e.Message}"); }
+        return targets;
     }
 
     public void StopBroadcasting()
@@ -159,7 +213,11 @@ public partial class NetworkManager : Node
             {
                 var result = await _discoveryListener.ReceiveAsync(token);
                 string msg = Encoding.UTF8.GetString(result.Buffer);
-                CallDeferred(MethodName.ParseDiscoveryMessage, msg);
+                // The sender's own view of its address can be wrong for the network we heard it
+                // on (a phone on mobile data reports its carrier IP). Where the packet actually
+                // came from is reachable by definition, so that wins.
+                CallDeferred(MethodName.ParseDiscoveryMessage, msg,
+                             result.RemoteEndPoint.Address.ToString());
             }
         }
         catch (OperationCanceledException) { }
@@ -167,7 +225,7 @@ public partial class NetworkManager : Node
     }
 
     // Called on the main thread via CallDeferred.
-    private void ParseDiscoveryMessage(string message)
+    private void ParseDiscoveryMessage(string message, string sourceIp)
     {
         var parts = message.Split('|');
         if (parts.Length < 5 || parts[0] != DiscoveryMagic) return;
@@ -179,7 +237,9 @@ public partial class NetworkManager : Node
         {
             Pin = pin,
             HostName = parts[2],
-            HostIp = parts[3],
+            // parts[3] is the host's self-reported address, kept only as a fallback: it is the
+            // one thing in the packet that can name an interface we cannot reach.
+            HostIp = !string.IsNullOrEmpty(sourceIp) ? sourceIp : parts[3],
             Port = int.TryParse(parts[4], out int port) ? port : GamePort
         });
 

@@ -334,12 +334,20 @@ public partial class Arena : Node2D
 			_hud.PauseCallback = RequestTogglePause;
 		}
 
+		// Split-screen views are screen space. As a plain Control child of Arena (a Node2D) the
+		// SubViewportContainers belonged to the world canvas: laid out in world coordinates and
+		// drawn inside the very world their own viewports render, so they moved and stacked
+		// with the scene instead of staying pinned to the display. HUD already gets this right
+		// with a CanvasLayer — mirror it, below HUD's layer 10 so the overlay stays on top.
+		var splitLayer = new CanvasLayer { Name = "SplitScreenLayer", Layer = 5 };
+		AddChild(splitLayer);
+
 		_splitScreenRoot = new Control
 		{
 			AnchorRight = 1f, AnchorBottom = 1f,
 			MouseFilter = Control.MouseFilterEnum.Ignore
 		};
-		AddChild(_splitScreenRoot);
+		splitLayer.AddChild(_splitScreenRoot);
 
 		SpawnInitialAmmoPacks();
 		SpawnInitialHealthPacks();

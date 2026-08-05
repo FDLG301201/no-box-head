@@ -5,7 +5,11 @@ namespace NoBoxHead;
 
 public enum CameraMode { Shared, SplitScreen }
 public enum AimMode    { Movement, Mouse, AutoAim }
-public enum GameMode   { SinglePlayer, LocalCoop }
+// Online is a distinct mode, not "co-op that happens to be networked": every peer renders its
+// own full screen. Without this value a networked session kept whatever mode was set last, so
+// after one local co-op game the online client still took every LocalCoop branch — split
+// screen, the P2 HUD panel, co-op joysticks, tabletop rotation — none of which apply.
+public enum GameMode   { SinglePlayer, LocalCoop, Online }
 
 public partial class SettingsManager : Node
 {

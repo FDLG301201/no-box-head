@@ -78,14 +78,43 @@ public partial class MainMenuUI : Control
 		foreach (ArenaType t in System.Enum.GetValues<ArenaType>())
 			opt.AddItem(ArenaLayouts.DisplayName(t), (int)t);
 		opt.Selected = (int)(SettingsManager.Instance?.ArenaType ?? ArenaType.Classic);
+		row.AddChild(opt);
+
+		var preview = new ArenaPreview
+		{
+			CustomMinimumSize = new Vector2(320, 180),
+			MouseFilter       = MouseFilterEnum.Ignore,
+		};
+		parent.AddChild(preview);
+
+		void RefreshPreview()
+		{
+			var type = SettingsManager.Instance?.ArenaType ?? ArenaType.Classic;
+			// Random has no layout until a seed exists, so roll one now and keep it: the whole
+			// point of the preview is to show the world that will actually be played, which
+			// means the seed has to be decided here rather than at launch.
+			if (type == ArenaType.Random) RollArenaSeed();
+			preview.SetArena(type, SettingsManager.Instance?.ArenaSeed ?? 0);
+		}
+
 		opt.ItemSelected += id =>
 		{
 			if (SettingsManager.Instance != null)
 				SettingsManager.Instance.ArenaType = (ArenaType)(int)id;
+			RefreshPreview();
 		};
-		row.AddChild(opt);
+
+		RefreshPreview();
 
 		parent.AddChild(new Control { CustomMinimumSize = new Vector2(0, 14) });
+	}
+
+	private static void RollArenaSeed()
+	{
+		if (SettingsManager.Instance == null) return;
+		var rng = new RandomNumberGenerator();
+		rng.Randomize();
+		SettingsManager.Instance.ArenaSeed = rng.Seed;
 	}
 
 	// Skin picker with a live preview of the character. In co-op / online the other players
@@ -137,13 +166,13 @@ public partial class MainMenuUI : Control
 		parent.AddChild(new Control { CustomMinimumSize = new Vector2(0, 14) });
 	}
 
-	// A fresh random arena each time the Random layout is chosen and a game starts.
+	// The world picker already rolled a seed and drew that exact layout, so keep it: re-rolling
+	// at launch would drop the player into a different arena than the one they just previewed.
+	// A fresh random world still comes from re-picking Random, or from returning to this menu.
 	private static void AssignArenaSeedIfRandom()
 	{
 		if (SettingsManager.Instance?.ArenaType != ArenaType.Random) return;
-		var rng = new RandomNumberGenerator();
-		rng.Randomize();
-		SettingsManager.Instance.ArenaSeed = rng.Seed;
+		if (SettingsManager.Instance.ArenaSeed == 0) RollArenaSeed();
 	}
 
 	private static void AddTitle(Control parent, string text)
@@ -196,13 +225,22 @@ public partial class MainMenuUI : Control
 
 	private void OnHostPressed()
 	{
-		LobbyMode.IsHost = true;
-		GetTree().ChangeSceneToFile("res://Scenes/Lobby.tscn");
+		EnterLobby(asHost: true);
 	}
 
 	private void OnJoinPressed()
 	{
-		LobbyMode.IsHost = false;
+		EnterLobby(asHost: false);
+	}
+
+	// GameMode is session state, so without setting it here a networked game inherited whatever
+	// was played last — and coming from Local Co-op that made the online client build a split
+	// screen for a second player who only exists on the other machine.
+	private void EnterLobby(bool asHost)
+	{
+		LobbyMode.IsHost = asHost;
+		if (SettingsManager.Instance != null)
+			SettingsManager.Instance.GameMode = GameMode.Online;
 		GetTree().ChangeSceneToFile("res://Scenes/Lobby.tscn");
 	}
 

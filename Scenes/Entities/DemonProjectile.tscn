@@ -1,8 +1,9 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://don00bvwpukkr"]
 
-[ext_resource type="Script" path="res://Scripts/Entities/DemonProjectile.cs" id="1_dproj"]
+[ext_resource type="Script" uid="uid://ci573ptu6j3ta" path="res://Scripts/Entities/DemonProjectile.cs" id="1_dproj"]
 
-[node name="DemonProjectile" type="Area2D"]
-script = ExtResource("1_dproj")
+[node name="DemonProjectile" type="Area2D" unique_id=511820007]
 collision_layer = 0
 collision_mask = 3
+monitoring = false
+script = ExtResource("1_dproj")

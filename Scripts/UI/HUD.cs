@@ -163,17 +163,36 @@ public partial class HUD : CanvasLayer
 
 	private void BuildHUD()
 	{
-		AddChild(MakeRect(new Color(0.15f, 0.15f, 0.15f), new Vector2(200, 16), new Vector2(10, 10)));
+		// P1's status belongs over P1's own half of the split, turned to read from that
+		// player's seat — the same treatment BuildP2Panel already gives P2. Adding it straight
+		// to the HUD root left it unrotated in the screen's top-left corner, spilling across
+		// the divider instead of sitting in P1's viewport. Solo play has no halves, so there
+		// the HUD root still is the whole screen and nothing changes.
+		bool isCoop  = SettingsManager.Instance?.GameMode == GameMode.LocalCoop;
+		Node target = this;
+		if (isCoop)
+		{
+			var (halfRoot, half) = MakePlayerHalf(0, isCoop: true);
+			AddChild(halfRoot);
+			target = half;
+
+			var tag = new Label { Text = "P1", Position = new Vector2(10, -2) };
+			tag.AddThemeFontSizeOverride("font_size", 11);
+			tag.AddThemeColorOverride("font_color", new Color(0.2f, 0.4f, 1f));
+			half.AddChild(tag);
+		}
+
+		target.AddChild(MakeRect(new Color(0.15f, 0.15f, 0.15f), new Vector2(200, 16), new Vector2(10, 10)));
 		_healthFill = MakeRect(new Color(0.2f, 0.85f, 0.2f), new Vector2(200, 16), new Vector2(10, 10));
-		AddChild(_healthFill);
+		target.AddChild(_healthFill);
 
 		var hpLabel = new Label { Text = "HP", Position = new Vector2(10, 8) };
 		hpLabel.AddThemeFontSizeOverride("font_size", 11);
-		AddChild(hpLabel);
+		target.AddChild(hpLabel);
 
 		_ammoLabel = new Label { Text = "12 | 12", Position = new Vector2(10, 34) };
 		_ammoLabel.AddThemeFontSizeOverride("font_size", 18);
-		AddChild(_ammoLabel);
+		target.AddChild(_ammoLabel);
 
 		_reloadLabel = new Label
 		{
@@ -183,12 +202,12 @@ public partial class HUD : CanvasLayer
 		};
 		_reloadLabel.AddThemeColorOverride("font_color", new Color(1f, 0.9f, 0.2f));
 		_reloadLabel.AddThemeFontSizeOverride("font_size", 16);
-		AddChild(_reloadLabel);
+		target.AddChild(_reloadLabel);
 
 		_weaponLabel = new Label { Text = "Pistol", Position = new Vector2(10, 76) };
 		_weaponLabel.AddThemeColorOverride("font_color", new Color(0.85f, 0.85f, 0.85f));
 		_weaponLabel.AddThemeFontSizeOverride("font_size", 14);
-		AddChild(_weaponLabel);
+		target.AddChild(_weaponLabel);
 
 		// Weapon-switch buttons. On touch these live around the aim stick instead (see
 		// AddTouchControls), so here they're desktop-only mouse shortcuts.
@@ -201,7 +220,7 @@ public partial class HUD : CanvasLayer
 				Size     = new Vector2(100, 28),
 			};
 			prevBtn.Pressed += () => SwitchWeaponPrevCallback?.Invoke();
-			AddChild(prevBtn);
+			target.AddChild(prevBtn);
 
 			var switchBtn = new Button
 			{
@@ -210,7 +229,7 @@ public partial class HUD : CanvasLayer
 				Size     = new Vector2(100, 28),
 			};
 			switchBtn.Pressed += () => SwitchWeaponCallback?.Invoke();
-			AddChild(switchBtn);
+			target.AddChild(switchBtn);
 		}
 		else
 		{
