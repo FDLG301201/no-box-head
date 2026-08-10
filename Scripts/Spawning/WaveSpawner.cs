@@ -30,6 +30,13 @@ public partial class WaveSpawner : Node
     private bool               _isHost;
     private int                _spawnIndex;
 
+    // Names every spawned enemy identically on every peer. Godot routes RPCs by NodePath, so
+    // an enemy left to auto-naming becomes "@CharacterBody2D@147" on the host and some other
+    // number on the client — and every position update the host sends for it is then dropped
+    // silently, leaving the client's copy frozen where it spawned. The host assigns the id and
+    // ships it with the spawn so both sides agree.
+    private int                _nextEnemyId;
+
     public override void _Ready()
     {
         _isHost           = !Multiplayer.HasMultiplayerPeer() || Multiplayer.IsServer();
@@ -63,33 +70,28 @@ public partial class WaveSpawner : Node
 
         int delay = 0;
         for (int i = 0; i < zombieCount; i++, delay++)
-        {
-            var pos = GetNextSpawnPosition();
-            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.SpawnEnemyRpc, pos, delay * 0.3f);
-            else SpawnEnemyRpc(pos, delay * 0.3f);
-        }
+            Emit(MethodName.SpawnEnemyRpc, delay);
         for (int i = 0; i < sprinterCount; i++, delay++)
-        {
-            var pos = GetNextSpawnPosition();
-            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.SpawnSprinterRpc, pos, delay * 0.3f);
-            else SpawnSprinterRpc(pos, delay * 0.3f);
-        }
+            Emit(MethodName.SpawnSprinterRpc, delay);
         for (int i = 0; i < demonCount; i++, delay++)
-        {
-            var pos = GetNextSpawnPosition();
-            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.SpawnDemonRpc, pos, delay * 0.3f);
-            else SpawnDemonRpc(pos, delay * 0.3f);
-        }
+            Emit(MethodName.SpawnDemonRpc, delay);
         for (int i = 0; i < ogreCount; i++, delay++)
-        {
-            var pos = GetNextSpawnPosition();
-            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.SpawnOgreRpc, pos, delay * 0.3f);
-            else SpawnOgreRpc(pos, delay * 0.3f);
-        }
+            Emit(MethodName.SpawnOgreRpc, delay);
+    }
+
+    /// <summary>
+    /// Issues one spawn, with the shared id that keeps the node's name identical on every peer.
+    /// </summary>
+    private void Emit(StringName rpcName, int delay)
+    {
+        var pos = GetNextSpawnPosition();
+        int id  = _nextEnemyId++;
+        if (NetworkManager.IsNetworked) Rpc(rpcName, pos, delay * 0.3f, id);
+        else                            Call(rpcName, pos, delay * 0.3f, id);
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
-    private void SpawnEnemyRpc(Vector2 position, float delay)
+    private void SpawnEnemyRpc(Vector2 position, float delay, int id)
     {
         if (_enemyScene == null) return;
         async void Deferred()
@@ -99,6 +101,7 @@ public partial class WaveSpawner : Node
                 await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
             var enemy = _enemyScene.Instantiate<Enemy>();
+            enemy.Name = $"E{id}"; // set before AddChild, or Godot auto-names it first
             _enemyContainer.AddChild(enemy);
             enemy.GlobalPosition = position;
         }
@@ -106,7 +109,7 @@ public partial class WaveSpawner : Node
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
-    private void SpawnDemonRpc(Vector2 position, float delay)
+    private void SpawnDemonRpc(Vector2 position, float delay, int id)
     {
         if (_demonScene == null) return;
         async void Deferred()
@@ -116,6 +119,7 @@ public partial class WaveSpawner : Node
                 await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
             var demon = _demonScene.Instantiate<Demon>();
+            demon.Name = $"E{id}";
             _enemyContainer.AddChild(demon);
             demon.GlobalPosition = position;
             if (_bulletsContainer != null)
@@ -125,7 +129,7 @@ public partial class WaveSpawner : Node
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
-    private void SpawnSprinterRpc(Vector2 position, float delay)
+    private void SpawnSprinterRpc(Vector2 position, float delay, int id)
     {
         if (_sprinterScene == null) return;
         async void Deferred()
@@ -135,6 +139,7 @@ public partial class WaveSpawner : Node
                 await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
             var sprinter = _sprinterScene.Instantiate<Sprinter>();
+            sprinter.Name = $"E{id}";
             _enemyContainer.AddChild(sprinter);
             sprinter.GlobalPosition = position;
         }
@@ -142,7 +147,7 @@ public partial class WaveSpawner : Node
     }
 
     [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
-    private void SpawnOgreRpc(Vector2 position, float delay)
+    private void SpawnOgreRpc(Vector2 position, float delay, int id)
     {
         if (_ogreScene == null) return;
         async void Deferred()
@@ -152,6 +157,7 @@ public partial class WaveSpawner : Node
                 await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
             if (!IsInstanceValid(this) || _enemyContainer == null) return;
             var ogre = _ogreScene.Instantiate<Ogre>();
+            ogre.Name = $"E{id}";
             _enemyContainer.AddChild(ogre);
             ogre.GlobalPosition = position;
         }

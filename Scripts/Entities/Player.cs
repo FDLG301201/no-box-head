@@ -66,20 +66,34 @@ public partial class Player : CharacterBody2D
     public override void _Ready()
     {
         CurrentHealth = MaxHealth;
-        _isLocalPlayer = !Multiplayer.HasMultiplayerPeer() || IsMultiplayerAuthority();
+        _isLocalPlayer = !NetworkManager.IsNetworked || IsMultiplayerAuthority();
         BuildPlaceholderVisual();
         AddToGroup("players");
-        if (_isLocalPlayer)
-            GameManager.Instance?.RegisterPlayer(this);
+        // Register every player, not just the one this peer drives. Enemies are simulated on
+        // the host and pick their target with GameManager.GetNearestPlayer, so registering
+        // only local players left the host's list holding nothing but the host's own
+        // character — every zombie in the game ignored the clients and converged on the host.
+        GameManager.Instance?.RegisterPlayer(this);
     }
 
-    // Returns the action name scoped to this player's index.
-    private string A(string action) => PlayerIndex == 0 ? action : action + "_p2";
+    /// <summary>
+    /// True only for the second player of a LOCAL co-op game, who shares one keyboard with
+    /// player one and therefore needs the "_p2" half of the bindings (arrows + numpad).
+    ///
+    /// Online, the joining player is also index 1 but sits at their OWN keyboard, so keying
+    /// off the index alone forced a desktop client to play on the arrow keys and the numpad
+    /// while WASD and space did nothing.
+    /// </summary>
+    private bool UsesSecondaryBindings =>
+        PlayerIndex != 0 && SettingsManager.Instance?.GameMode == GameMode.LocalCoop;
+
+    // Returns the action name scoped to this player's controls.
+    private string A(string action) => UsesSecondaryBindings ? action + "_p2" : action;
 
     public override void _Input(InputEvent ev)
     {
         if (!_isLocalPlayer) return;
-        if (PlayerIndex == 0)
+        if (!UsesSecondaryBindings)
         {
             if (ev.IsActionPressed("switch_weapon"))      SwitchToNextWeapon();
             if (ev.IsActionPressed("switch_weapon_prev")) SwitchToPreviousWeapon();
@@ -209,7 +223,7 @@ public partial class Player : CharacterBody2D
         // unusable on touch, since there'd be no way to shoot without overriding the aim.
         if (_aimJoystick?.IsActive == true) return true;
         if (_touchFireHeld) return true;
-        if (PlayerIndex == 0) return Input.IsActionPressed("shoot");
+        if (!UsesSecondaryBindings) return Input.IsActionPressed("shoot");
         return _p2ShootHeld;
     }
 
@@ -473,25 +487,60 @@ public partial class Player : CharacterBody2D
         UpdateHealthBar();
         SetPhysicsProcess(true);
         EmitSignal(SignalName.HealthChanged, CurrentHealth, MaxHealth);
-        if (_isLocalPlayer) GameManager.Instance?.RegisterPlayer(this);
+        GameManager.Instance?.RegisterPlayer(this); // targetable again, on every peer
     }
 
     // ── Damage / Death ────────────────────────────────────────────────────────
 
     public void TakeDamage(float amount)
     {
-        if (!_isLocalPlayer || !IsAlive) return;
+        if (!IsAlive) return;
+
+        // Enemies only ever run on the host, so the host is who calls this — including on the
+        // player nodes it does not own. Returning early there meant a client could stand in a
+        // horde and never lose a point of health. Hand the hit to whoever owns that player, so
+        // a peer still remains the only authority over its own health.
+        if (!_isLocalPlayer)
+        {
+            if (NetworkManager.IsNetworked)
+                RpcId(GetMultiplayerAuthority(), MethodName.ApplyDamageRpc, amount);
+            return;
+        }
+
+        ApplyDamage(amount);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+    private void ApplyDamageRpc(float amount) => ApplyDamage(amount);
+
+    private void ApplyDamage(float amount)
+    {
+        if (!IsAlive) return;
         CurrentHealth = Mathf.Max(0f, CurrentHealth - amount);
         UpdateHealthBar();
         FlashDamage();
         BloodSystem.Instance?.Splatter(GlobalPosition, -_lastAimDir, 0.8f);
         AudioManager.Instance?.Play(AudioManager.PlayerHurt, 0.9f, 0.08f);
         EmitSignal(SignalName.HealthChanged, CurrentHealth, MaxHealth);
+
+        // Health is owned locally but drawn everywhere: without this the other peers keep
+        // showing a full bar over a player who is nearly dead, and their copy of IsAlive stays
+        // true, which is also what enemies test before picking a target.
+        if (NetworkManager.IsNetworked) Rpc(MethodName.SyncHealthRpc, CurrentHealth);
+
         if (CurrentHealth <= 0f)
         {
-            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.DieRpc);
+            if (NetworkManager.IsNetworked) Rpc(MethodName.DieRpc);
             else DieRpc();
         }
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+    private void SyncHealthRpc(float health)
+    {
+        CurrentHealth = health;
+        UpdateHealthBar();
+        FlashDamage();
     }
 
     private async void FlashDamage()

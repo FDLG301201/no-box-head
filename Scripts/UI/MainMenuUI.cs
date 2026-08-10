@@ -4,6 +4,13 @@ namespace NoBoxHead;
 
 public partial class MainMenuUI : Control
 {
+	// Deliberately tight vertical rhythm. This menu has to clear a title, two pickers, an arena
+	// preview and five buttons, and it also runs in small windows and on phones. At the earlier
+	// sizing the content stood 691px tall, so on a 531px window the bottom buttons fell off the
+	// screen entirely — these are what keep the whole menu on one screen.
+	private const int RowGap       = 10;
+	private const int ButtonHeight = 42;
+
 	public override void _Ready()
 	{
 		GameManager.Instance?.ResetGame();
@@ -18,11 +25,14 @@ public partial class MainMenuUI : Control
 		bg.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 		AddChild(bg);
 
-		// ScrollContainer + CenterContainer instead of a fixed pixel offset: the old
-		// Position-based centering assumed a content height that grew (Arena/Skin rows) and
-		// started pushing "Settings" off the bottom of the window. This centers when content
-		// fits and scrolls instead of clipping when it doesn't — also matters on small mobile
-		// screens, where this menu runs too.
+		// A ScrollContainer so the menu survives content taller than the window (it grew with
+		// the Arena/Skin rows and again with the arena preview) and small mobile screens.
+		//
+		// The content is centred horizontally only. A CenterContainer used to do both axes,
+		// which quietly breaks once the content outgrows the viewport: it centres the child,
+		// so the overflow goes ABOVE the scroll origin as well as below, and the top — title,
+		// arena picker — ends up clipped where scrolling cannot reach it. Top-aligned content
+		// always starts at a scrollable position, whatever its height.
 		var scroll = new ScrollContainer
 		{
 			AnchorRight          = 1f, AnchorBottom = 1f,
@@ -30,16 +40,24 @@ public partial class MainMenuUI : Control
 		};
 		AddChild(scroll);
 
-		var hcenter = new CenterContainer
-		{
-			SizeFlagsHorizontal = SizeFlags.ExpandFill,
-			SizeFlagsVertical   = SizeFlags.ExpandFill,
-		};
-		scroll.AddChild(hcenter);
+		// ScrollContainer places its child at the origin and only stretches it when the child
+		// asks to expand, so ShrinkCenter on the child alone does nothing and the menu hugs the
+		// left edge. This full-width column is what expands; a BoxContainer DOES honour its
+		// children's cross-axis flags, so the inner column below centres properly inside it.
+		var column = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+		column.AddThemeConstantOverride("separation", 2);
+		scroll.AddChild(column);
 
-		var vbox = new VBoxContainer();
-		vbox.CustomMinimumSize = new Vector2(320, 0);
-		hcenter.AddChild(vbox);
+		// Breathing room so the title is not flush against the top edge.
+		column.AddChild(new Control { CustomMinimumSize = new Vector2(0, 8) });
+
+		var vbox = new VBoxContainer
+		{
+			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+			CustomMinimumSize   = new Vector2(320, 0),
+		};
+		vbox.AddThemeConstantOverride("separation", 2);
+		column.AddChild(vbox);
 
 		AddTitle(vbox, "NO BOX HEAD");
 
@@ -80,9 +98,12 @@ public partial class MainMenuUI : Control
 		opt.Selected = (int)(SettingsManager.Instance?.ArenaType ?? ArenaType.Classic);
 		row.AddChild(opt);
 
+		// 16:9 like the arena itself, but kept small: this menu also runs on short windows and
+		// phone screens, where every row it pushes down is a button the player cannot see.
 		var preview = new ArenaPreview
 		{
-			CustomMinimumSize = new Vector2(320, 180),
+			CustomMinimumSize = new Vector2(192, 108),
+			SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
 			MouseFilter       = MouseFilterEnum.Ignore,
 		};
 		parent.AddChild(preview);
@@ -106,7 +127,7 @@ public partial class MainMenuUI : Control
 
 		RefreshPreview();
 
-		parent.AddChild(new Control { CustomMinimumSize = new Vector2(0, 14) });
+		parent.AddChild(new Control { CustomMinimumSize = new Vector2(0, RowGap) });
 	}
 
 	private static void RollArenaSeed()
@@ -163,7 +184,7 @@ public partial class MainMenuUI : Control
 		};
 		row.AddChild(opt);
 
-		parent.AddChild(new Control { CustomMinimumSize = new Vector2(0, 14) });
+		parent.AddChild(new Control { CustomMinimumSize = new Vector2(0, RowGap) });
 	}
 
 	// The world picker already rolled a seed and drew that exact layout, so keep it: re-rolling
@@ -182,12 +203,11 @@ public partial class MainMenuUI : Control
 			Text = text,
 			HorizontalAlignment = HorizontalAlignment.Center
 		};
-		label.AddThemeFontSizeOverride("font_size", 40);
+		label.AddThemeFontSizeOverride("font_size", 32);
 		label.AddThemeColorOverride("font_color", new Color(0.9f, 0.3f, 0.2f));
 		parent.AddChild(label);
 
-		var spacer = new Control { CustomMinimumSize = new Vector2(0, 30) };
-		parent.AddChild(spacer);
+		parent.AddChild(new Control { CustomMinimumSize = new Vector2(0, RowGap) });
 	}
 
 	private static void AddButton(Control parent, string text, Action pressed)
@@ -195,9 +215,9 @@ public partial class MainMenuUI : Control
 		var btn = new Button
 		{
 			Text = text,
-			CustomMinimumSize = new Vector2(320, 50)
+			CustomMinimumSize = new Vector2(320, ButtonHeight)
 		};
-		btn.AddThemeFontSizeOverride("font_size", 20);
+		btn.AddThemeFontSizeOverride("font_size", 19);
 		btn.Pressed += pressed;
 		parent.AddChild(btn);
 	}

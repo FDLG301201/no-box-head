@@ -207,26 +207,61 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
 
     private void FireProjectile(Vector2 dir)
     {
+        var origin = GlobalPosition + dir * 18f;
+        SpawnProjectile(origin, dir, cosmetic: false);
+
+        // Demons only run on the host, so its fireball only ever existed there: a client saw
+        // nothing at all — no sprite approaching, no warning, just health disappearing when
+        // the host resolved the hit. Mirror the shot so everyone can see and dodge it.
+        if (NetworkManager.IsNetworked)
+            Rpc(MethodName.SpawnProjectileRpc, origin, dir);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
+    private void SpawnProjectileRpc(Vector2 origin, Vector2 dir) =>
+        SpawnProjectile(origin, dir, cosmetic: true);
+
+    private void SpawnProjectile(Vector2 origin, Vector2 dir, bool cosmetic)
+    {
         var scene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/DemonProjectile.tscn");
         if (scene == null) return;
         var proj = scene.Instantiate<DemonProjectile>();
+        proj.Cosmetic = cosmetic; // the host's copy is the one that deals damage
         (_projectileContainer ?? GetParent()).AddChild(proj);
-        proj.Init(GlobalPosition + dir * 18f, dir);
+        proj.Init(origin, dir);
     }
 
     public void ApplyKnockback(Vector2 impulse) => _knockback += impulse;
 
     public void TakeDamage(float amount)
     {
-        if (!_isHost || !IsAlive) return;
+        // Forward a client's hit to the host rather than dropping it — see Enemy.cs.
+        if (!IsAlive) return;
+        if (!_isHost)
+        {
+            if (NetworkManager.IsNetworked) RpcId(1, MethodName.RequestDamageRpc, amount);
+            return;
+        }
+        ApplyDamage(amount);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+    private void RequestDamageRpc(float amount)
+    {
+        if (_isHost) ApplyDamage(amount);
+    }
+
+    private void ApplyDamage(float amount)
+    {
+        if (!IsAlive) return;
         _currentHealth = Mathf.Max(0f, _currentHealth - amount);
         UpdateHealthBar();
-        if (Multiplayer.HasMultiplayerPeer())
+        if (NetworkManager.IsNetworked)
             Rpc(MethodName.ApplyDamageRpc, _currentHealth);
         FlashDamage();
         if (_currentHealth <= 0f)
         {
-            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.DieRpc);
+            if (NetworkManager.IsNetworked) Rpc(MethodName.DieRpc);
             else DieRpc();
         }
     }

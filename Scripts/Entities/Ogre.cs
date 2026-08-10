@@ -194,15 +194,33 @@ public partial class Ogre : CharacterBody2D, IDamageable, IKnockbackable
 
 	public void TakeDamage(float amount)
 	{
-		if (!_isHost || !IsAlive) return;
+		// Forward a client's hit to the host rather than dropping it — see Enemy.cs.
+		if (!IsAlive) return;
+		if (!_isHost)
+		{
+			if (NetworkManager.IsNetworked) RpcId(1, MethodName.RequestDamageRpc, amount);
+			return;
+		}
+		ApplyDamage(amount);
+	}
+
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+	private void RequestDamageRpc(float amount)
+	{
+		if (_isHost) ApplyDamage(amount);
+	}
+
+	private void ApplyDamage(float amount)
+	{
+		if (!IsAlive) return;
 		_currentHealth = Mathf.Max(0f, _currentHealth - amount);
 		UpdateHealthBar();
-		if (Multiplayer.HasMultiplayerPeer())
+		if (NetworkManager.IsNetworked)
 			Rpc(MethodName.ApplyDamageVisualRpc, _currentHealth);
 		FlashDamage();
 		if (_currentHealth <= 0f)
 		{
-			if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.DieRpc);
+			if (NetworkManager.IsNetworked) Rpc(MethodName.DieRpc);
 			else DieRpc();
 		}
 	}

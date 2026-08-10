@@ -18,6 +18,14 @@ public partial class Bullet : Area2D
     // Force applied to the hit enemy's velocity vector.
     public float KnockbackForce   = 100f;
 
+    /// <summary>
+    /// A copy of somebody else's shot, spawned purely so the other players can see it. The
+    /// shooter's own bullet is the one that resolves the hit (via the host), so a cosmetic
+    /// round deals no damage and applies no knockback — otherwise every peer would resolve
+    /// the same shot and a two-player game would do double damage.
+    /// </summary>
+    public bool Cosmetic;
+
     private Vector2 _direction;
     private Vector2 _origin;
 
@@ -57,10 +65,11 @@ public partial class Bullet : Area2D
     {
         if (body is IDamageable damageable && damageable.IsAlive)
         {
-            damageable.TakeDamage(ComputeDamage());
+            if (!Cosmetic) damageable.TakeDamage(ComputeDamage());
+            // Blood is local decoration either way, so a mirrored shot still draws its hit.
             BloodSystem.Instance?.Splatter(GlobalPosition, _direction);
         }
-        if (body is IKnockbackable kb)
+        if (!Cosmetic && body is IKnockbackable kb)
             kb.ApplyKnockback(_direction * KnockbackForce);
         QueueFree();
     }

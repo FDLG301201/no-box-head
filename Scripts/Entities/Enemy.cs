@@ -222,15 +222,39 @@ public partial class Enemy : CharacterBody2D, IDamageable, IKnockbackable
 
     public void TakeDamage(float amount)
     {
-        if (!_isHost || !IsAlive) return;
+        if (!IsAlive) return;
+
+        // Enemies are simulated on the host, so only the host may change their health. But a
+        // client's bullet hits the client's OWN copy of the enemy, and dropping the hit here
+        // is why a joining player could empty a magazine into a zombie for nothing. Forward
+        // the request instead; the host stays the sole authority over the health value.
+        if (!_isHost)
+        {
+            if (NetworkManager.IsNetworked)
+                RpcId(1, MethodName.RequestDamageRpc, amount);
+            return;
+        }
+
+        ApplyDamage(amount);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+    private void RequestDamageRpc(float amount)
+    {
+        if (_isHost) ApplyDamage(amount);
+    }
+
+    private void ApplyDamage(float amount)
+    {
+        if (!IsAlive) return;
         _currentHealth = Mathf.Max(0f, _currentHealth - amount);
         UpdateHealthBar();
-        if (Multiplayer.HasMultiplayerPeer())
+        if (NetworkManager.IsNetworked)
             Rpc(MethodName.ApplyDamageVisualRpc, _currentHealth);
         FlashDamage();
         if (_currentHealth <= 0f)
         {
-            if (Multiplayer.HasMultiplayerPeer()) Rpc(MethodName.DieRpc);
+            if (NetworkManager.IsNetworked) Rpc(MethodName.DieRpc);
             else DieRpc();
         }
     }

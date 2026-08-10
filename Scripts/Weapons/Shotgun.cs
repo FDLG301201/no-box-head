@@ -48,6 +48,9 @@ public partial class Shotgun : Weapon
             pellet.KnockbackForce    = 45f;
             (BulletContainer ?? GetTree().Root).AddChild(pellet);
             pellet.Init(origin, dir, BulletDamage);
+
+            // One tracer per pellet, so the spread cone reads the same for everyone.
+            BroadcastTracer(origin, dir, PelletMaxRange, pellet.Speed);
         }
     }
 }

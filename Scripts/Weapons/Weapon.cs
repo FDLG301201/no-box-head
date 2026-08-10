@@ -84,6 +84,33 @@ public abstract partial class Weapon : Node
         bullet.KnockbackForce = BulletKnockback;
         (BulletContainer ?? GetTree().Root).AddChild(bullet);
         bullet.Init(origin, direction, BulletDamage);
+
+        BroadcastTracer(origin, direction, bullet.MaxDistance, bullet.Speed);
+    }
+
+    /// <summary>
+    /// Mirrors a shot to the other players so they can see it being fired. Weapons are named
+    /// Weapon0/Weapon1 under a Player0/Player1, so this node's path is identical on every peer
+    /// and the RPC routes cleanly. Unreliable: a dropped tracer costs one missing muzzle
+    /// streak, which is not worth re-sending.
+    /// </summary>
+    protected void BroadcastTracer(Vector2 origin, Vector2 direction, float maxDistance, float speed)
+    {
+        if (NetworkManager.IsNetworked)
+            Rpc(MethodName.SpawnTracerRpc, origin, direction, maxDistance, speed);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false,
+         TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
+    private void SpawnTracerRpc(Vector2 origin, Vector2 direction, float maxDistance, float speed)
+    {
+        if (BulletScene == null) return;
+        var tracer = BulletScene.Instantiate<Bullet>();
+        tracer.Cosmetic    = true; // visual only — the shooter's round does the damage
+        tracer.MaxDistance = maxDistance;
+        tracer.Speed       = speed;
+        (BulletContainer ?? GetTree().Root).AddChild(tracer);
+        tracer.Init(origin, direction, 0f);
     }
 
     private async void DoReload()

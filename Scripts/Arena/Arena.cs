@@ -70,14 +70,25 @@ public partial class Arena : Node2D
 		BuildNavigationRegion();
 		WireUpChildren();
 
-		if (!Multiplayer.HasMultiplayerPeer() || Multiplayer.IsServer())
+		if (!NetworkManager.IsNetworked)
 		{
 			SpawnPlayers();
 			GameManager.Instance?.StartGame(); // must come after players are spawned
 		}
+		else if (Multiplayer.IsServer())
+		{
+			// Do NOT start here. Spawning players and wave 1 immediately meant those RPCs went
+			// out while the clients were still loading their own Arena, and an RPC to a peer
+			// that has not reached the matching node yet is simply dropped — which is exactly
+			// why a joining player arrived to an empty world with no enemies and no wave.
+			// Wait until every peer says its arena is up (see ReportArenaReadyRpc).
+			_peersReady.Add(1); // the host's own arena is ready right now
+			CheckAllPeersReady();
+		}
 		else
 		{
-			NetworkManager.Instance.PlayerConnected += _ => { /* handled via RPC */ };
+			// Tell the host this arena exists and can receive spawn RPCs.
+			RpcId(1, MethodName.ReportArenaReadyRpc);
 		}
 
 		GameManager.Instance!.GameOver    += OnGameOver;
@@ -420,11 +431,48 @@ public partial class Arena : Node2D
 		return n;
 	}
 
+	// ── Networked start handshake ─────────────────────────────────────────────
+
+	// Peers whose Arena is built and therefore able to receive spawn RPCs. Host-only state.
+	private readonly HashSet<long> _peersReady = new();
+	private bool _startedNetworkedGame;
+
+	/// <summary>
+	/// A client reporting that its Arena is in the tree. Sent to the host only, so that the
+	/// host can hold wave 1 until nobody will miss the spawn RPCs.
+	/// </summary>
+	[Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+	private void ReportArenaReadyRpc()
+	{
+		if (!Multiplayer.IsServer()) return;
+		_peersReady.Add(Multiplayer.GetRemoteSenderId());
+		CheckAllPeersReady();
+	}
+
+	private void CheckAllPeersReady()
+	{
+		if (_startedNetworkedGame || !Multiplayer.IsServer()) return;
+
+		// Every peer the lobby handed out an index to has to be accounted for; starting on a
+		// partial set would leave the stragglers in the same empty world as before.
+		foreach (var peerId in NetworkManager.Instance.PeerPlayerIndex.Keys)
+			if (!_peersReady.Contains(peerId))
+				return;
+
+		_startedNetworkedGame = true;
+		SpawnPlayers();
+		GameManager.Instance?.StartGame(); // must come after players are spawned
+	}
+
 	// ── Player spawning ───────────────────────────────────────────────────────
 
 	private void SpawnPlayers()
 	{
-		if (Multiplayer.HasMultiplayerPeer())
+		// IsNetworked, not HasMultiplayerPeer(): the latter is true even offline because Godot
+		// installs an OfflineMultiplayerPeer by default, so an offline game that skipped
+		// MainMenu's Disconnect() took the networked branch, iterated an empty PeerPlayerIndex
+		// and spawned nobody at all.
+		if (NetworkManager.IsNetworked)
 		{
 			foreach (var (peerId, idx) in NetworkManager.Instance.PeerPlayerIndex)
 				Rpc(MethodName.SpawnPlayerRpc, idx, peerId);
@@ -457,8 +505,7 @@ public partial class Arena : Node2D
 		player.AddWeapon(knife);
 
 		// In local co-op, both players are on the same machine (no multiplayer peer).
-		bool isLocalPlayer = !Multiplayer.HasMultiplayerPeer() ||
-							 (Multiplayer.HasMultiplayerPeer() && peerId == Multiplayer.GetUniqueId());
+		bool isLocalPlayer = !NetworkManager.IsNetworked || peerId == Multiplayer.GetUniqueId();
 
 		if (isLocalPlayer)
 		{

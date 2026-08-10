@@ -11,6 +11,13 @@ public partial class DemonProjectile : Area2D
 	public float Damage = 20f;
 	public float Speed  = 200f;
 
+	/// <summary>
+	/// A mirror of a fireball the host already fired, spawned so the other players can see one
+	/// coming and get out of the way. The host's own projectile is what resolves the hit, so a
+	/// cosmetic copy deals no damage — otherwise a single fireball would hurt twice.
+	/// </summary>
+	public bool Cosmetic;
+
 	private Vector2 _direction;
 	private float   _lifetime = 5f;
 
@@ -47,7 +54,7 @@ public partial class DemonProjectile : Area2D
 
 	private void OnBodyEntered(Node2D body)
 	{
-		if (body is Player player)
+		if (!Cosmetic && body is Player player)
 			player.TakeDamage(Damage);
 		QueueFree();
 	}
