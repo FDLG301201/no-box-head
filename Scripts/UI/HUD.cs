@@ -125,6 +125,7 @@ public partial class HUD : CanvasLayer
 		BuildHUD();
 		if (SettingsManager.Instance?.GameMode == GameMode.LocalCoop)
 			BuildP2Panel();
+		BuildBossBars();
 		BuildPauseMenu();
 		BuildGameOverScreen();
 
@@ -132,6 +133,12 @@ public partial class HUD : CanvasLayer
 		{
 			GameManager.Instance.WaveStarted             += OnWaveStarted;
 			GameManager.Instance.EnemiesRemainingChanged += OnEnemiesChanged;
+			GameManager.Instance.BossSpawned             += OnBossSpawned;
+			GameManager.Instance.BossDefeated            += OnBossDefeated;
+
+			// A boss may already be alive if this HUD was rebuilt mid-fight (scene reload).
+			if (GameManager.Instance.ActiveBoss is { } boss && IsInstanceValid(boss))
+				OnBossSpawned(boss);
 		}
 
 		if (ScoreManager.Instance != null)
@@ -151,6 +158,8 @@ public partial class HUD : CanvasLayer
 		{
 			GameManager.Instance.WaveStarted             -= OnWaveStarted;
 			GameManager.Instance.EnemiesRemainingChanged -= OnEnemiesChanged;
+			GameManager.Instance.BossSpawned             -= OnBossSpawned;
+			GameManager.Instance.BossDefeated            -= OnBossDefeated;
 		}
 		if (ScoreManager.Instance != null)
 		{
@@ -168,7 +177,7 @@ public partial class HUD : CanvasLayer
 		// to the HUD root left it unrotated in the screen's top-left corner, spilling across
 		// the divider instead of sitting in P1's viewport. Solo play has no halves, so there
 		// the HUD root still is the whole screen and nothing changes.
-		bool isCoop  = SettingsManager.Instance?.GameMode == GameMode.LocalCoop;
+		bool isCoop  = UsesSplitScreen;
 		Node target = this;
 		if (isCoop)
 		{
@@ -313,11 +322,36 @@ public partial class HUD : CanvasLayer
 
 	// ── P2 status panel (local co-op) ─────────────────────────────────────────
 
+	/// <summary>
+	/// True only when the display is actually carved into per-player halves. Being in local
+	/// co-op is not enough on its own: with Shared Camera both players look at one full-screen
+	/// view, so the HUD has to lay its panels out on that single screen rather than inside
+	/// halves that do not exist. On mobile CameraMode is always SplitScreen, so tabletop is
+	/// unaffected.
+	/// </summary>
+	private static bool UsesSplitScreen =>
+		SettingsManager.Instance?.GameMode   == GameMode.LocalCoop &&
+		SettingsManager.Instance?.CameraMode == CameraMode.SplitScreen;
+
 	private void BuildP2Panel()
 	{
 		// Overlays P2's split viewport, wherever that is on this platform.
-		var (root, panel) = MakePlayerHalf(1, isCoop: true);
+		var (root, panel) = MakePlayerHalf(1, isCoop: UsesSplitScreen);
 		AddChild(root);
+
+		// With one shared screen both status panels land on it, and P1's already owns the top
+		// left — push P2's to the opposite corner so they do not stack on top of each other.
+		if (!UsesSplitScreen)
+		{
+			var right = new Control
+			{
+				AnchorLeft = 1f, AnchorRight = 1f,
+				Position   = new Vector2(-220, 0),
+				MouseFilter = Control.MouseFilterEnum.Ignore,
+			};
+			panel.AddChild(right);
+			panel = right;
+		}
 
 		// Tag label.
 		var tag = new Label { Text = "P2", Position = new Vector2(10, -2) };
@@ -352,6 +386,85 @@ public partial class HUD : CanvasLayer
 		panel.AddChild(_weaponLabelP2);
 
 		// On touch, P2's action buttons live around their own joysticks (AddTouchControls).
+	}
+
+	// ── Boss health bar ───────────────────────────────────────────────────────
+
+	private readonly List<ColorRect> _bossFills = new();
+	private readonly List<Control>   _bossRoots = new();
+	private readonly List<Label>     _bossNames = new();
+	private Node? _trackedBoss;
+
+	/// <summary>
+	/// One bar PER SCREEN HALF rather than a single shared one at the top of the display.
+	/// In tabletop co-op each half is rotated 90° to face its own player, so a shared bar would
+	/// read sideways for both of them and belong to neither. MakePlayerHalf collapses to the
+	/// full screen outside co-op, so solo and online still get exactly one bar.
+	/// </summary>
+	private void BuildBossBars()
+	{
+		// One bar per half only when the screen really is split; a shared view gets a single bar.
+		bool isCoop = UsesSplitScreen;
+		int halves  = isCoop ? 2 : 1;
+
+		for (int i = 0; i < halves; i++)
+		{
+			var (root, panel) = MakePlayerHalf(i, isCoop);
+			AddChild(root);
+			root.Visible = false;
+			_bossRoots.Add(root);
+
+			// Anchored to the top edge of its own half, centred horizontally.
+			var holder = new Control
+			{
+				AnchorLeft = 0.5f, AnchorRight = 0.5f,
+				Position   = new Vector2(-150, 118),
+				MouseFilter = Control.MouseFilterEnum.Ignore,
+			};
+			panel.AddChild(holder);
+
+			var name = new Label
+			{
+				Text = "", Position = new Vector2(0, -20),
+				HorizontalAlignment = HorizontalAlignment.Center,
+				CustomMinimumSize   = new Vector2(300, 0),
+				MouseFilter         = Control.MouseFilterEnum.Ignore,
+			};
+			name.AddThemeFontSizeOverride("font_size", 14);
+			name.AddThemeColorOverride("font_color", new Color(1f, 0.75f, 0.3f));
+			holder.AddChild(name);
+			_bossNames.Add(name);
+
+			holder.AddChild(MakeRect(new Color(0.12f, 0.12f, 0.12f), new Vector2(300, 12), Vector2.Zero));
+			var fill = MakeRect(new Color(0.85f, 0.15f, 0.15f), new Vector2(300, 12), Vector2.Zero);
+			holder.AddChild(fill);
+			_bossFills.Add(fill);
+		}
+	}
+
+	private void OnBossSpawned(Node boss)
+	{
+		_trackedBoss = boss;
+		string label = boss is Boss b ? b.BossName : "BOSS";
+		foreach (var n in _bossNames) n.Text = label;
+		foreach (var r in _bossRoots) r.Visible = true;
+	}
+
+	private void OnBossDefeated()
+	{
+		_trackedBoss = null;
+		foreach (var r in _bossRoots) r.Visible = false;
+	}
+
+	// Polled rather than pushed: the boss's health already reaches every peer through
+	// EnemyBase's sync, so reading it here keeps the bar correct on clients without adding
+	// another RPC purely to feed a UI widget.
+	public override void _Process(double delta)
+	{
+		if (_trackedBoss is not Boss boss || !IsInstanceValid(boss)) return;
+		float f = boss.HealthFraction;
+		foreach (var fill in _bossFills)
+			fill.Size = new Vector2(300f * f, 12f);
 	}
 
 	// ── Pause menu ────────────────────────────────────────────────────────────

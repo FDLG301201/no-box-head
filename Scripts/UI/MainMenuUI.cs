@@ -16,6 +16,10 @@ public partial class MainMenuUI : Control
 		GameManager.Instance?.ResetGame();
 		NetworkManager.Instance?.Disconnect();
 		BuildUI();
+		// Starting it here rather than in the Arena means the track keeps running across the
+		// menu → game → back-to-menu transitions instead of restarting on every scene change:
+		// MusicManager.Play() is a no-op when the requested track is already the one playing.
+		MusicManager.Instance?.PlaySelected();
 	}
 
 	private void BuildUI()
@@ -24,6 +28,12 @@ public partial class MainMenuUI : Control
 		var bg = new ColorRect { Color = new Color(0.08f, 0.08f, 0.1f) };
 		bg.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 		AddChild(bg);
+
+		// Added here — after the background, before the menu — because CanvasItem siblings draw
+		// in child order, so this is what puts the horde behind the title and buttons rather than
+		// over them. It is a Node2D, so it adds nothing to the content height the constants above
+		// exist to protect.
+		AddChild(new MenuHorde());
 
 		// A ScrollContainer so the menu survives content taller than the window (it grew with
 		// the Arena/Skin rows and again with the arena preview) and small mobile screens.

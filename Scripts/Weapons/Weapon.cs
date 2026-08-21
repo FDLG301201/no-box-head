@@ -23,8 +23,21 @@ public abstract partial class Weapon : Node
     // Human-readable name shown in HUD.
     public virtual string WeaponName => GetType().Name;
 
+    /// <summary>
+    /// True for melee-style weapons that never run dry. They use MagazineSize = -1 as an ∞
+    /// sentinel, which makes the usual "CurrentAmmo &lt;= 0" emptiness test read as permanently
+    /// empty — that is why the Chainsaw instantly swapped itself for the Knife on every shot.
+    /// Anything asking "is this weapon out of ammo" must consult this first.
+    /// </summary>
+    public bool InfiniteAmmo => MagazineSize < 0;
+
     // Sound played on a successful shot; subclasses override with their own.
     protected virtual string FireSound => AudioManager.Pistol;
+
+    // Projectile tint handed to every Bullet this weapon spawns (see SpawnBullet below and the
+    // weapons that build their own Bullet instances, e.g. Shotgun/FlakShotgun/Railgun). Matches
+    // Bullet's own default so a weapon that doesn't override this looks unchanged.
+    protected virtual Color BulletColor => new Color(1f, 0.9f, 0.2f);
 
     public int  CurrentAmmo { get; protected set; }
     public int  ReserveAmmo { get; private set; }
@@ -82,6 +95,7 @@ public abstract partial class Weapon : Node
         var bullet = BulletScene.Instantiate<Bullet>();
         bullet.Damage         = BulletDamage;
         bullet.KnockbackForce = BulletKnockback;
+        bullet.Color          = BulletColor;
         (BulletContainer ?? GetTree().Root).AddChild(bullet);
         bullet.Init(origin, direction, BulletDamage);
 
@@ -94,21 +108,31 @@ public abstract partial class Weapon : Node
     /// and the RPC routes cleanly. Unreliable: a dropped tracer costs one missing muzzle
     /// streak, which is not worth re-sending.
     /// </summary>
-    protected void BroadcastTracer(Vector2 origin, Vector2 direction, float maxDistance, float speed)
+    protected void BroadcastTracer(Vector2 origin, Vector2 direction, float maxDistance, float speed,
+        int pierceCount = 0)
     {
         if (NetworkManager.IsNetworked)
-            Rpc(MethodName.SpawnTracerRpc, origin, direction, maxDistance, speed);
+            // BulletColor is read HERE, on the shooter's own instance, and sent explicitly as a
+            // wire argument rather than trusting the receiving peer's copy to re-derive the same
+            // value. That is what keeps a railgun beam blue/purple for everyone: the RPC targets
+            // this weapon's mirrored node by path (Weapon0/Weapon1 under Player0/Player1), which
+            // is normally the same weapon type on every peer, but the colour would otherwise be
+            // silently wrong for however long that assumption doesn't hold (e.g. mid weapon-swap).
+            Rpc(MethodName.SpawnTracerRpc, origin, direction, maxDistance, speed, BulletColor, pierceCount);
     }
 
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false,
          TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
-    private void SpawnTracerRpc(Vector2 origin, Vector2 direction, float maxDistance, float speed)
+    private void SpawnTracerRpc(Vector2 origin, Vector2 direction, float maxDistance, float speed,
+        Color color, int pierceCount)
     {
         if (BulletScene == null) return;
         var tracer = BulletScene.Instantiate<Bullet>();
         tracer.Cosmetic    = true; // visual only — the shooter's round does the damage
         tracer.MaxDistance = maxDistance;
         tracer.Speed       = speed;
+        tracer.Color       = color; // mirrors the shooter's own bullet colour (see BroadcastTracer)
+        tracer.PierceCount = pierceCount; // so a mirrored railgun beam visually punches through too
         (BulletContainer ?? GetTree().Root).AddChild(tracer);
         tracer.Init(origin, direction, 0f);
     }

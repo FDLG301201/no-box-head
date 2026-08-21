@@ -27,6 +27,8 @@ public partial class WaveSpawner : Node
     private PackedScene?       _demonScene;
     private PackedScene?       _sprinterScene;
     private PackedScene?       _ogreScene;
+    private PackedScene?       _bossScene;
+    private PackedScene?       _bossAltScene;
     private bool               _isHost;
     private int                _spawnIndex;
 
@@ -52,6 +54,8 @@ public partial class WaveSpawner : Node
         _demonScene    = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/Demon.tscn");
         _sprinterScene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/Sprinter.tscn");
         _ogreScene     = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/Ogre.tscn");
+        _bossScene       = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/Boss.tscn");
+        _bossAltScene    = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/BossGigante.tscn");
 
         GameManager.Instance?.SetWaveSpawner(this);
     }
@@ -60,15 +64,26 @@ public partial class WaveSpawner : Node
     {
         if (!_isHost) return;
 
-        int zombieCount   = 3 + waveNumber * 2;
-        int demonCount    = waveNumber >= 3 ? (waveNumber - 2) : 0;
-        int sprinterCount = waveNumber >= 2 ? 1 + waveNumber / 2 : 0;
-        int ogreCount     = OgreCountForWave(waveNumber);
-        int total         = zombieCount + demonCount + sprinterCount + ogreCount;
+        bool isBossWave   = IsBossWave(waveNumber);
+
+        // A boss wave thins out the rabble: the fight should be about the boss, not about
+        // being chewed to death by a crowd while you try to focus on it.
+        float trash       = isBossWave ? 0.4f : 1f;
+        int zombieCount   = Mathf.RoundToInt((3 + waveNumber * 2) * trash);
+        int demonCount    = Mathf.RoundToInt((waveNumber >= 3 ? (waveNumber - 2) : 0) * trash);
+        int sprinterCount = Mathf.RoundToInt((waveNumber >= 2 ? 1 + waveNumber / 2 : 0) * trash);
+        // No ogre on a boss wave — two heavies at once reads as noise, not difficulty.
+        int ogreCount     = isBossWave ? 0 : OgreCountForWave(waveNumber);
+        int bossCount     = isBossWave ? 1 : 0;
+        int total         = zombieCount + demonCount + sprinterCount + ogreCount + bossCount;
 
         GameManager.Instance?.SetEnemiesForWave(total);
 
         int delay = 0;
+        // The boss goes FIRST, with no stagger delay, so its bar and music land before the
+        // trash arrives rather than several seconds into the fight.
+        for (int i = 0; i < bossCount; i++)
+            Emit(UsesAltBoss(waveNumber) ? MethodName.SpawnBossAltRpc : MethodName.SpawnBossRpc, 0);
         for (int i = 0; i < zombieCount; i++, delay++)
             Emit(MethodName.SpawnEnemyRpc, delay);
         for (int i = 0; i < sprinterCount; i++, delay++)
@@ -77,6 +92,56 @@ public partial class WaveSpawner : Node
             Emit(MethodName.SpawnDemonRpc, delay);
         for (int i = 0; i < ogreCount; i++, delay++)
             Emit(MethodName.SpawnOgreRpc, delay);
+    }
+
+    /// <summary>
+    /// Every 5th wave from wave 5. Late enough that the player has unlocked more than a pistol,
+    /// and spaced so a boss stays an event rather than routine.
+    /// </summary>
+    private static bool IsBossWave(int waveNumber) => waveNumber >= 5 && waveNumber % 5 == 0;
+
+    /// <summary>
+    /// Alternates the two bosses: wave 5 THE BUTCHER, 10 THE COLOSSUS, 15 THE BUTCHER…
+    /// They demand opposite habits — the Butcher's bullet star punishes standing in the wrong
+    /// place, the Colossus's charge punishes standing still at all — so alternating stops the
+    /// player from settling into one answer. Chosen HOST-SIDE and then RPC'd, so every peer
+    /// spawns the same boss rather than each deriving it and risking a mismatch.
+    /// </summary>
+    private static bool UsesAltBoss(int waveNumber) => (waveNumber / 5) % 2 == 0;
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
+    private void SpawnBossAltRpc(Vector2 position, float delay, int id)
+    {
+        if (_bossAltScene == null) return;
+        async void Deferred()
+        {
+            if (delay > 0f)
+                await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
+            if (!IsInstanceValid(this) || _enemyContainer == null) return;
+            var boss = _bossAltScene.Instantiate<BossGigante>();
+            boss.Name = $"E{id}"; // deterministic naming — RPCs route by NodePath
+            _enemyContainer.AddChild(boss);
+            boss.GlobalPosition = position;
+            if (_bulletsContainer != null) boss.SetProjectileContainer(_bulletsContainer);
+        }
+        Deferred();
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
+    private void SpawnBossRpc(Vector2 position, float delay, int id)
+    {
+        if (_bossScene == null) return;
+        async void Deferred()
+        {
+            if (delay > 0f)
+                await ToSignal(GetTree().CreateTimer(delay, false), SceneTreeTimer.SignalName.Timeout);
+            if (!IsInstanceValid(this) || _enemyContainer == null) return;
+            var boss = _bossScene.Instantiate<Boss>();
+            boss.Name = $"E{id}"; // same deterministic naming — RPCs route by NodePath
+            _enemyContainer.AddChild(boss);
+            boss.GlobalPosition = position;
+        }
+        Deferred();
     }
 
     /// <summary>

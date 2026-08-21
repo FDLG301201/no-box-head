@@ -3,63 +3,58 @@ using Godot;
 namespace NoBoxHead;
 
 /// <summary>
-/// Demon enemy. Tougher than zombie, slower, navigates around walls,
-/// and fires projectiles. Appears from wave 3. Worth 25 pts on kill.
+/// Demon enemy. Tougher than zombie, slower, navigates around walls, and fires projectiles.
+/// Appears from wave 3. Worth 25 pts on kill.
+///
+/// Unlike the melee types this one overrides <see cref="_PhysicsProcess"/> outright instead of
+/// leaning on EnemyBase's chase loop: it holds position at ShootRange rather than closing to
+/// melee, only separates from the pack while it is actually moving, and measures "am I stuck"
+/// against its full walk speed. Everything downstream of movement — damage RPCs, death, drops,
+/// health bar, knockback — is inherited.
 /// </summary>
-public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
+public partial class Demon : EnemyBase
 {
-    [Export] public float MoveSpeed      = 35f;
-    [Export] public float MaxHealth      = 80f;
-    [Export] public float AttackDamage   = 15f;
-    [Export] public float AttackCooldown = 1.2f;
-    [Export] public float AttackRange    = 30f;
-    [Export] public float ShootRange     = 250f;
-    [Export] public float ShootCooldown  = 2.5f;
+    [Export] public float ShootRange    = 250f;
+    [Export] public float ShootCooldown = 2.5f;
 
-    public bool IsAlive => _currentHealth > 0f;
+    private float _shootTimer;
+    private Node? _projectileContainer;
 
-    private float               _currentHealth;
-    private float               _attackTimer;
-    private float               _shootTimer;
-    private Vector2             _knockback;
-    private Sprite2D?           _visual;
-    private ColorRect?          _healthFill;
-    private bool                _isHost;
-    private Node?               _projectileContainer;
-    private NavigationAgent2D?  _navAgent;
+    public Demon()
+    {
+        MoveSpeed      = 35f;
+        MaxHealth      = 80f;
+        AttackDamage   = 15f;
+        AttackCooldown = 1.2f;
+        AttackRange    = 30f;
+    }
 
-    private Vector2             _prevPosition;
-    private float               _stuckTimer;
-    private float               _stuckSide = 1f;
-    private const float         StuckWindow   = 0.25f;
-    private const float         StuckMinRatio = 0.2f;
+    // Paths in coarser steps than the melee types — it only needs to get roughly into firing
+    // position, not hug a corner.
+    protected override float NavPathDesiredDistance => 12f;
 
-    // Same barrel-breaking behaviour as Enemy: if the player is walled off, path to and
-    // smash the nearest barrel instead of standing at range shooting at a wall.
-    private Barrel?              _targetBarrel;
-    private float                _barrelAttackTimer;
-    private const float          BarrelAttackRange = 40f;
+    protected override Color FlashColor    => new Color(1f, 0.6f, 0.6f);
+    protected override Color DeathModulate => Colors.DarkGray;
+
+    protected override int   ScoreValue       => 25;
+    protected override float BloodPoolScale   => 1.35f;
+    protected override float HealthDropChance => 0.08f;
 
     public void SetProjectileContainer(Node container) => _projectileContainer = container;
 
-    public override void _Ready()
-    {
-        _currentHealth = MaxHealth;
-        _isHost = !Multiplayer.HasMultiplayerPeer() || Multiplayer.IsServer();
-        BuildVisual();
-        AddToGroup("enemies");
+    protected override void PlayDeathSound() =>
+        AudioManager.Instance?.Play(AudioManager.EnemyDeath, 0.9f, 0.06f);
 
-        if (_isHost)
-        {
-            _navAgent = new NavigationAgent2D
-            {
-                PathDesiredDistance   = 12f,
-                TargetDesiredDistance = 20f,
-                AvoidanceEnabled      = false,
-                Radius                = 12f,
-            };
-            AddChild(_navAgent);
-        }
+    /// <summary>Always drops, and a bigger pack than the melee types — no chance roll.</summary>
+    protected override void DropAmmo()
+    {
+        var scene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/AmmoPack.tscn");
+        if (scene == null) return;
+        var pack = scene.Instantiate<AmmoPack>();
+        pack.AmmoAmount     = 6;
+        pack.WeaponType     = ScoreManager.Instance?.GetRandomUnlockedAmmoType() ?? "Pistol";
+        pack.GlobalPosition = GlobalPosition;
+        GetParent()?.AddChild(pack);
     }
 
     public override void _PhysicsProcess(double delta)
@@ -85,9 +80,16 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
         Vector2 navTarget = _targetBarrel?.GlobalPosition ?? target.GlobalPosition;
         float   navTargetDist = GlobalPosition.DistanceTo(navTarget);
 
+        // "In range" on a straight-line distance check means nothing if a wall sits between —
+        // the fireball would just splash against it. Treat a blocked line of fire the same as
+        // being too far away, so the demon keeps moving (the nav mesh routes it around the
+        // obstacle) instead of freezing next to a wall it can't shoot through.
+        bool blockedLineOfFire = _targetBarrel == null && dist <= ShootRange &&
+                                  !HasLineOfSight(target.GlobalPosition);
+
         // Navigate toward the target only while outside preferred shoot range (skipped
         // entirely while chasing a barrel — it has no ranged attack of its own).
-        if (_targetBarrel != null || dist > ShootRange * 0.65f)
+        if (_targetBarrel != null || dist > ShootRange * 0.65f || blockedLineOfFire)
         {
             Vector2 navDir = _targetBarrel != null ? (navTarget - GlobalPosition).Normalized() : dir;
             if (_navAgent != null)
@@ -108,8 +110,8 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
                 if (node is Node2D other && other != this && IsInstanceValid(other))
                 {
                     float d = GlobalPosition.DistanceTo(other.GlobalPosition);
-                    if (d < 24f && d > 0f)
-                        Velocity += (GlobalPosition - other.GlobalPosition).Normalized() * (24f - d) * 0.5f;
+                    if (d < SeparationRadius && d > 0f)
+                        Velocity += (GlobalPosition - other.GlobalPosition).Normalized() * (SeparationRadius - d) * 0.5f;
                 }
             }
         }
@@ -118,25 +120,36 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
             Velocity = Vector2.Zero;
         }
 
-        // Yield to a player pushing through — see CrowdSeparation and Enemy.cs.
-        Velocity += CrowdSeparation.AwayFromPlayers(this, AttackRange);
+        // Deliberately no CrowdSeparation.AwayFromPlayers here (unlike EnemyBase's melee
+        // types). This demon is a ranged attacker that should hold its ground and keep firing
+        // even at point-blank; the shared "yield so a player can push through" nudge shoved it
+        // back out to AttackRange the instant the player closed inside that radius, which read
+        // as backing away right when it should have been standing and shooting.
 
         // Apply and decay knockback impulse (always, even while stationary).
         if (_knockback.LengthSquared() > 1f)
         {
             Velocity += _knockback;
-            _knockback *= 0.7f;
+            _knockback *= KnockbackDecay;
         }
         else
         {
             _knockback = Vector2.Zero;
         }
 
+        // Captured before MoveAndSlide can shorten Velocity on contact, so holding position to
+        // fire (Velocity already zero) is never misread as being stuck. This used to compare
+        // against a constant (MoveSpeed * delta) instead, which is never zero — so the demon
+        // deliberately standing still to shoot got treated as "stuck" every single frame and was
+        // kicked sideways by the recovery nudge below every StuckWindow seconds even with a
+        // completely clear shot, which is exactly the erratic drifting the owner reported.
+        float intendedDist = Velocity.Length() * (float)delta;
+
         MoveAndSlide();
 
         // ── Stuck recovery ────────────────────────────────────────────────────
         float movedDist    = GlobalPosition.DistanceTo(_prevPosition);
-        float expectedDist = MoveSpeed * (float)delta;
+        float expectedDist = intendedDist;
         if (expectedDist > 0f && movedDist < expectedDist * StuckMinRatio)
         {
             _stuckTimer += (float)delta;
@@ -181,7 +194,10 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
                 _attackTimer = AttackCooldown;
             }
 
-            if (dist <= ShootRange && _shootTimer <= 0f)
+            // Skip the shot entirely when the line of fire is blocked — see blockedLineOfFire
+            // above — so it doesn't waste its cooldown lobbing fireballs into a wall while it
+            // repositions for a clear shot.
+            if (dist <= ShootRange && _shootTimer <= 0f && !blockedLineOfFire)
             {
                 FireProjectile(dir);
                 _shootTimer = ShootCooldown;
@@ -189,20 +205,22 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
         }
 
         if (Multiplayer.HasMultiplayerPeer())
-            Rpc(MethodName.SyncState, GlobalPosition, Rotation, _currentHealth);
+            Rpc(MethodName.SyncEnemyState, GlobalPosition, Rotation, _currentHealth);
     }
 
-    private Barrel? FindNearestBarrel()
+    /// <summary>
+    /// True if nothing solid sits between here and <paramref name="to"/>. Mask 1 is the same
+    /// "blocking" set BarrelWeapon.CanPlaceAt uses — static geometry and barrels — so a barrel
+    /// wall counts as blocking a shot exactly the same way an arena wall does.
+    /// </summary>
+    private bool HasLineOfSight(Vector2 to)
     {
-        Barrel? nearest = null;
-        float   minDist = float.MaxValue;
-        foreach (var node in GetTree().GetNodesInGroup("barrels"))
-        {
-            if (node is not Barrel b || !IsInstanceValid(b) || !b.IsAlive) continue;
-            float d = GlobalPosition.DistanceTo(b.GlobalPosition);
-            if (d < minDist) { minDist = d; nearest = b; }
-        }
-        return nearest;
+        var space = GetWorld2D()?.DirectSpaceState;
+        if (space == null) return true; // no physics context yet — don't block firing/movement
+        var query = PhysicsRayQueryParameters2D.Create(GlobalPosition, to);
+        query.CollisionMask = 1;
+        query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+        return space.IntersectRay(query).Count == 0;
     }
 
     private void FireProjectile(Vector2 dir)
@@ -231,103 +249,19 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
         proj.Init(origin, dir);
     }
 
-    public void ApplyKnockback(Vector2 impulse) => _knockback += impulse;
-
-    public void TakeDamage(float amount)
+    protected override void BuildVisual()
     {
-        // Forward a client's hit to the host rather than dropping it — see Enemy.cs.
-        if (!IsAlive) return;
-        if (!_isHost)
-        {
-            if (NetworkManager.IsNetworked) RpcId(1, MethodName.RequestDamageRpc, amount);
-            return;
-        }
-        ApplyDamage(amount);
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
-    private void RequestDamageRpc(float amount)
-    {
-        if (_isHost) ApplyDamage(amount);
-    }
-
-    private void ApplyDamage(float amount)
-    {
-        if (!IsAlive) return;
-        _currentHealth = Mathf.Max(0f, _currentHealth - amount);
-        UpdateHealthBar();
-        if (NetworkManager.IsNetworked)
-            Rpc(MethodName.ApplyDamageRpc, _currentHealth);
-        FlashDamage();
-        if (_currentHealth <= 0f)
-        {
-            if (NetworkManager.IsNetworked) Rpc(MethodName.DieRpc);
-            else DieRpc();
-        }
-    }
-
-    private async void FlashDamage()
-    {
-        Modulate = new Color(1f, 0.6f, 0.6f);
-        await ToSignal(GetTree().CreateTimer(0.12), SceneTreeTimer.SignalName.Timeout);
-        if (IsInstanceValid(this)) Modulate = Colors.White;
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false)]
-    private void ApplyDamageRpc(float newHealth)
-    {
-        _currentHealth = newHealth;
-        UpdateHealthBar();
-        FlashDamage();
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true)]
-    private void DieRpc()
-    {
-        _currentHealth = 0f;
-        if (_visual != null) _visual.Modulate = Colors.DarkGray;
-        SetPhysicsProcess(false);
-        ScoreManager.Instance?.RegisterKill(25);
-        GameManager.Instance?.OnEnemyKilled();
-        BloodSystem.Instance?.Pool(GlobalPosition, 1.35f);
-        AudioManager.Instance?.Play(AudioManager.EnemyDeath, 0.9f, 0.06f);
-        DropAmmoPack();
-        HealthPack.TryDrop(GetParent(), GlobalPosition, 0.08f);
-        CallDeferred(Node.MethodName.QueueFree);
-    }
-
-    private void DropAmmoPack()
-    {
-        var scene = ResourceLoader.Load<PackedScene>("res://Scenes/Entities/AmmoPack.tscn");
-        if (scene == null) return;
-        var pack = scene.Instantiate<AmmoPack>();
-        pack.AmmoAmount     = 6;
-        pack.WeaponType     = ScoreManager.Instance?.GetRandomUnlockedAmmoType() ?? "Pistol";
-        pack.GlobalPosition = GlobalPosition;
-        GetParent()?.AddChild(pack);
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = false,
-         TransferMode = MultiplayerPeer.TransferModeEnum.Unreliable)]
-    private void SyncState(Vector2 position, float rotation, float health)
-    {
-        GlobalPosition = position;
-        Rotation       = rotation;
-        _currentHealth = health;
-        UpdateHealthBar();
-    }
-
-    private void BuildVisual()
-    {
-        // Sprite's native canvas is 480x580 with the character's visual center around
-        // (239, 285) — offset math below keeps that point pinned to the node's origin.
-        const float scale = 0.085f;
+        // Canvas 506x477, character's visual centre (258, 238.5) — taken from the art's ALPHA BOUNDS, not the
+        // canvas middle, so the body stays pinned to the node origin where the collision circle
+        // and pathing live. Both numbers are derived, never eyeballed: after any art re-export run
+        // `python Tools/sprite_metrics.py emit` and paste what it prints.
+        const float scale = 0.11333f;
         _visual = new Sprite2D
         {
             Texture  = ResourceLoader.Load<Texture2D>("res://Assets/Sprites/Enemies/demonio.png"),
             Centered = false,
             Scale    = new Vector2(scale, scale),
-            Position = new Vector2(-239f * scale, -285.5f * scale),
+            Position = new Vector2(-258f * scale, -238.5f * scale),
         };
         AddChild(_visual);
 
@@ -345,13 +279,9 @@ public partial class Demon : CharacterBody2D, IDamageable, IKnockbackable
             Position = new Vector2(-17, -31)
         };
         AddChild(_healthFill);
+        _healthBarWidth  = 34f;
+        _healthBarHeight = 4f;
 
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 14f } });
-    }
-
-    private void UpdateHealthBar()
-    {
-        if (_healthFill == null) return;
-        _healthFill.Size = new Vector2(34f * (_currentHealth / MaxHealth), 4f);
     }
 }

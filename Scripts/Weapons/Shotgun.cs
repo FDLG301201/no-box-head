@@ -16,6 +16,9 @@ public partial class Shotgun : Weapon
 
     public override string WeaponName => "Shotgun";
     protected override string FireSound => AudioManager.Shotgun;
+    // Warm amber pellets — close to the pistol's yellow (same "conventional ammo" family) but
+    // visibly more orange, so a spread of pellets doesn't read as identical to a pistol round.
+    protected override Color BulletColor => new Color(1f, 0.75f, 0.25f);
 
     public override void _Ready()
     {
@@ -46,6 +49,7 @@ public partial class Shotgun : Weapon
             pellet.MinDamageFactor   = PelletMinDamage;
             pellet.FalloffStartRatio = PelletFalloff;
             pellet.KnockbackForce    = 45f;
+            pellet.Color             = BulletColor;
             (BulletContainer ?? GetTree().Root).AddChild(pellet);
             pellet.Init(origin, dir, BulletDamage);
 

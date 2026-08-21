@@ -216,6 +216,37 @@ def game_over():
     return apply(out, attack(len(out), 0.004))
 
 
+def railgun():
+    # Coil charge-up (fast rising sine) release plus a bright crackle and a low punch, so it
+    # reads as an electromagnetic weapon rather than a fired cartridge.
+    n = n_samples(0.30)
+    charge = apply(sine(n, 220, 1800), decay(n, 3.0))
+    crackle = apply(highpass(noise(n), 0.4), decay(n, 10.0))
+    punch = apply(sine(n, 90, 40), decay(n, 14.0))
+    return apply(mix([c * 0.8 for c in charge], [k * 0.35 for k in crackle], [p * 0.9 for p in punch]),
+                 attack(n, 0.01))
+
+
+def flamethrower():
+    # Short breathy roar+hiss so it still reads as a stream when retriggered every ~0.09s
+    # while the fire button is held (see Flamethrower.FireRate) instead of smearing into mush.
+    n = n_samples(0.14)
+    roar = apply(lowpass(noise(n), 0.30), decay(n, 10.0))
+    hiss = apply(highpass(noise(n), 0.22), decay(n, 16.0))
+    return apply(mix(roar, [h * 0.35 for h in hiss]), attack(n, 0.01))
+
+
+def cryogun():
+    # Descending glassy zap plus a high shimmer and a breathy mist — icy/crystalline rather
+    # than the warm cracks every gunpowder weapon here uses.
+    n = n_samples(0.22)
+    zap = apply(sine(n, 1400, 500), decay(n, 9.0))
+    shimmer = apply(square(n, 2200, 2600, duty=0.3), decay(n, 20.0))
+    mist = apply(highpass(noise(n), 0.3), decay(n, 18.0))
+    return apply(mix([z * 0.8 for z in zap], [s * 0.25 for s in shimmer], [m * 0.3 for m in mist]),
+                 attack(n, 0.004))
+
+
 SOUNDS = {
     "pistol.wav":        pistol,
     "shotgun.wav":       shotgun,
@@ -230,6 +261,9 @@ SOUNDS = {
     "barrel_place.wav":  barrel_place,
     "wave_start.wav":    wave_start,
     "game_over.wav":     game_over,
+    "railgun.wav":       railgun,
+    "flamethrower.wav":  flamethrower,
+    "cryogun.wav":       cryogun,
 }
 
 if __name__ == "__main__":

@@ -10,6 +10,9 @@ public partial class SettingsUI : Control
     private Button? _aimMoveBtn;
     private Button? _aimMouseBtn;
     private Button? _aimAutoBtn;
+    private Button? _bloodOnBtn;
+    private Button? _bloodOffBtn;
+    private Button[]? _bloodColorBtns;
 
     // Key-rebinding state: while an action is "listening", the next key press is captured.
     private readonly Dictionary<string, Button> _bindButtons = new();
@@ -56,10 +59,16 @@ public partial class SettingsUI : Control
         var vbox = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         scroll.AddChild(vbox);
 
-        BuildCameraSection(vbox);
+        // Phones get audio and aim only. Camera mode is pointless there — a shared camera is
+        // unplayable on a handheld, so local co-op is always split screen (forced in
+        // SettingsManager), and key rebinding has no keyboard to rebind. Both sections would
+        // just be dead controls eating room on a small screen.
+        if (!Platform.IsMobile) BuildCameraSection(vbox);
         BuildAudioSection(vbox);
+        BuildMusicSection(vbox);
+        BuildBloodSection(vbox);
         BuildAimSection(vbox);
-        BuildControlsSection(vbox);
+        if (!Platform.IsMobile) BuildControlsSection(vbox);
 
         UpdateButtonStates();
 
@@ -138,6 +147,126 @@ public partial class SettingsUI : Control
         vbox.AddChild(Spacer(16));
     }
 
+    /// <summary>
+    /// Music volume, plus a track picker once there is more than one track to pick from —
+    /// showing a one-item selector would just be noise.
+    /// </summary>
+    private void BuildMusicSection(VBoxContainer vbox)
+    {
+        var header = MakeLabel("Music");
+        header.AddThemeFontSizeOverride("font_size", 18);
+        vbox.AddChild(header);
+
+        var row = new HBoxContainer { CustomMinimumSize = new Vector2(0, 44) };
+        vbox.AddChild(row);
+
+        var slider = new HSlider
+        {
+            MinValue            = 0,
+            MaxValue            = 1,
+            Step                = 0.05,
+            Value               = SettingsManager.Instance?.MusicVolume ?? 0.5f,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical   = SizeFlags.ShrinkCenter,
+        };
+        row.AddChild(slider);
+
+        var readout = MakeLabel("");
+        readout.CustomMinimumSize = new Vector2(60, 0);
+        readout.VerticalAlignment = VerticalAlignment.Center;
+        readout.AddThemeFontSizeOverride("font_size", 15);
+        row.AddChild(readout);
+
+        void Refresh(double v) => readout.Text = v <= 0.001 ? "Off" : $"{Mathf.RoundToInt((float)v * 100)}%";
+        Refresh(slider.Value);
+
+        slider.ValueChanged += v =>
+        {
+            if (SettingsManager.Instance == null) return;
+            SettingsManager.Instance.MusicVolume = (float)v;
+            SettingsManager.Instance.SaveSettings();
+            // Applied live so the slider is audible while you drag it.
+            MusicManager.Instance?.ApplyVolume();
+            Refresh(v);
+        };
+
+        if (MusicManager.Tracks.Length > 1)
+        {
+            var picker = new OptionButton { CustomMinimumSize = new Vector2(0, 44) };
+            picker.AddThemeFontSizeOverride("font_size", 16);
+            foreach (var (_, label, _) in MusicManager.Tracks) picker.AddItem(label);
+            picker.Selected = Mathf.Clamp(SettingsManager.Instance?.MusicTrackIndex ?? 0,
+                                          0, MusicManager.Tracks.Length - 1);
+            picker.ItemSelected += id =>
+            {
+                if (SettingsManager.Instance == null) return;
+                SettingsManager.Instance.MusicTrackIndex = (int)id;
+                SettingsManager.Instance.SaveSettings();
+                MusicManager.Instance?.PlaySelected();
+            };
+            vbox.AddChild(picker);
+        }
+
+        vbox.AddChild(Spacer(16));
+    }
+
+    /// <summary>
+    /// Blood on/off plus a colour preset. Deliberately NOT gated behind !Platform.IsMobile like
+    /// the camera and rebinding sections: this is the one setting a parent may need to reach on
+    /// a phone, which is the platform the game ships on.
+    /// </summary>
+    private void BuildBloodSection(VBoxContainer vbox)
+    {
+        var header = MakeLabel("Blood");
+        header.AddThemeFontSizeOverride("font_size", 18);
+        vbox.AddChild(header);
+
+        var toggleRow = new HBoxContainer { CustomMinimumSize = new Vector2(0, 50) };
+        vbox.AddChild(toggleRow);
+
+        _bloodOnBtn  = MakeToggleBtn("On");
+        _bloodOffBtn = MakeToggleBtn("Off");
+        _bloodOnBtn.Pressed  += () => SetBloodEnabled(true);
+        _bloodOffBtn.Pressed += () => SetBloodEnabled(false);
+        toggleRow.AddChild(_bloodOnBtn);
+        toggleRow.AddChild(_bloodOffBtn);
+
+        var colourRow = new HBoxContainer { CustomMinimumSize = new Vector2(0, 50) };
+        vbox.AddChild(colourRow);
+
+        _bloodColorBtns = new Button[BloodPalettes.Names.Length];
+        for (int i = 0; i < BloodPalettes.Names.Length; i++)
+        {
+            int index = i; // capture per iteration, not the shared loop variable
+            var btn = MakeToggleBtn(BloodPalettes.Names[i]);
+            btn.Pressed += () => SetBloodColor(index);
+            _bloodColorBtns[i] = btn;
+            colourRow.AddChild(btn);
+        }
+
+        vbox.AddChild(Spacer(16));
+    }
+
+    private void SetBloodEnabled(bool enabled)
+    {
+        if (SettingsManager.Instance != null)
+        {
+            SettingsManager.Instance.BloodEnabled = enabled;
+            SettingsManager.Instance.SaveSettings();
+        }
+        UpdateButtonStates();
+    }
+
+    private void SetBloodColor(int index)
+    {
+        if (SettingsManager.Instance != null)
+        {
+            SettingsManager.Instance.BloodColorIndex = index;
+            SettingsManager.Instance.SaveSettings();
+        }
+        UpdateButtonStates();
+    }
+
     private void BuildAimSection(VBoxContainer vbox)
     {
         var aimLabel = MakeLabel("Aim Mode");
@@ -157,19 +286,24 @@ public partial class SettingsUI : Control
         var aimRow = new HBoxContainer { CustomMinimumSize = new Vector2(0, 50) };
         vbox.AddChild(aimRow);
 
-        _aimMoveBtn  = MakeToggleBtn("Movement");
-        _aimMouseBtn = MakeToggleBtn("Mouse");
-        _aimAutoBtn  = MakeToggleBtn("Auto-Aim");
+        _aimMoveBtn = MakeToggleBtn("Movement");
+        _aimAutoBtn = MakeToggleBtn("Auto-Aim");
 
-        // No cursor exists on a touch device, so mouse aim can't be selected there.
-        _aimMouseBtn.Disabled = Platform.IsMobile;
-
-        _aimMoveBtn.Pressed  += () => SetAimMode(AimMode.Movement);
-        _aimMouseBtn.Pressed += () => SetAimMode(AimMode.Mouse);
-        _aimAutoBtn.Pressed  += () => SetAimMode(AimMode.AutoAim);
+        _aimMoveBtn.Pressed += () => SetAimMode(AimMode.Movement);
+        _aimAutoBtn.Pressed += () => SetAimMode(AimMode.AutoAim);
 
         aimRow.AddChild(_aimMoveBtn);
-        aimRow.AddChild(_aimMouseBtn);
+
+        // A touch device has no cursor, so mouse aim is not merely unavailable there — it is
+        // meaningless. It used to be added and greyed out, which left an unusable button
+        // eating a third of the row on the smallest screens.
+        if (!Platform.IsMobile)
+        {
+            _aimMouseBtn = MakeToggleBtn("Mouse");
+            _aimMouseBtn.Pressed += () => SetAimMode(AimMode.Mouse);
+            aimRow.AddChild(_aimMouseBtn);
+        }
+
         aimRow.AddChild(_aimAutoBtn);
 
         vbox.AddChild(Spacer(16));
@@ -177,18 +311,42 @@ public partial class SettingsUI : Control
 
     private void BuildControlsSection(VBoxContainer vbox)
     {
-        var header = MakeLabel("Controls (Player 1)");
+        BuildControlsRows(vbox, "Controls (Player 1)", SettingsManager.BindableActions);
+        BuildControlsRows(vbox, "Controls (Player 2)", SettingsManager.BindableActionsP2);
+
+        var resetBtn = new Button { Text = "Reset to Defaults", CustomMinimumSize = new Vector2(0, 44) };
+        resetBtn.AddThemeFontSizeOverride("font_size", 16);
+        resetBtn.Pressed += () =>
+        {
+            SettingsManager.Instance?.ResetBindings();
+            RefreshBindButtons();
+        };
+        vbox.AddChild(resetBtn);
+        vbox.AddChild(Spacer(16));
+    }
+
+    /// <summary>
+    /// One player's rebinding rows. Both players share _bindButtons/RefreshBindButtons — their
+    /// action names never collide ("move_up" vs "move_up_p2") so one dictionary keyed by action
+    /// covers both without any extra per-player bookkeeping.
+    /// </summary>
+    private void BuildControlsRows(VBoxContainer vbox, string headerText, (string Action, string Label)[] actions)
+    {
+        var header = MakeLabel(headerText);
         header.AddThemeFontSizeOverride("font_size", 18);
         vbox.AddChild(header);
 
-        _bindHint = MakeLabel("Click a key to rebind it. Escape cancels.");
-        _bindHint.AutowrapMode = TextServer.AutowrapMode.Word;
-        _bindHint.AddThemeColorOverride("font_color", new Color(0.7f, 0.7f, 0.7f));
-        _bindHint.AddThemeFontSizeOverride("font_size", 13);
-        vbox.AddChild(_bindHint);
-        vbox.AddChild(Spacer(6));
+        if (_bindHint == null)
+        {
+            _bindHint = MakeLabel("Click a key to rebind it. Escape cancels.");
+            _bindHint.AutowrapMode = TextServer.AutowrapMode.Word;
+            _bindHint.AddThemeColorOverride("font_color", new Color(0.7f, 0.7f, 0.7f));
+            _bindHint.AddThemeFontSizeOverride("font_size", 13);
+            vbox.AddChild(_bindHint);
+            vbox.AddChild(Spacer(6));
+        }
 
-        foreach (var (action, label) in SettingsManager.BindableActions)
+        foreach (var (action, label) in actions)
         {
             var row = new HBoxContainer { CustomMinimumSize = new Vector2(0, 40) };
             vbox.AddChild(row);
@@ -212,16 +370,6 @@ public partial class SettingsUI : Control
         }
 
         vbox.AddChild(Spacer(10));
-
-        var resetBtn = new Button { Text = "Reset to Defaults", CustomMinimumSize = new Vector2(0, 44) };
-        resetBtn.AddThemeFontSizeOverride("font_size", 16);
-        resetBtn.Pressed += () =>
-        {
-            SettingsManager.Instance?.ResetBindings();
-            RefreshBindButtons();
-        };
-        vbox.AddChild(resetBtn);
-        vbox.AddChild(Spacer(16));
     }
 
     // ── Key rebinding ─────────────────────────────────────────────────────────
@@ -276,6 +424,8 @@ public partial class SettingsUI : Control
     {
         foreach (var (a, label) in SettingsManager.BindableActions)
             if (a == action) return label;
+        foreach (var (a, label) in SettingsManager.BindableActionsP2)
+            if (a == action) return label;
         return action;
     }
 
@@ -318,6 +468,19 @@ public partial class SettingsUI : Control
         if (_aimMoveBtn  != null) _aimMoveBtn.ButtonPressed  = aim == AimMode.Movement;
         if (_aimMouseBtn != null) _aimMouseBtn.ButtonPressed = aim == AimMode.Mouse;
         if (_aimAutoBtn  != null) _aimAutoBtn.ButtonPressed  = aim == AimMode.AutoAim;
+
+        bool bloodOn = SettingsManager.Instance?.BloodEnabled ?? true;
+        if (_bloodOnBtn  != null) _bloodOnBtn.ButtonPressed  = bloodOn;
+        if (_bloodOffBtn != null) _bloodOffBtn.ButtonPressed = !bloodOn;
+
+        int bloodColor = SettingsManager.Instance?.BloodColorIndex ?? 0;
+        if (_bloodColorBtns != null)
+            for (int i = 0; i < _bloodColorBtns.Length; i++)
+            {
+                _bloodColorBtns[i].ButtonPressed = i == bloodColor;
+                // Colour only matters while blood is drawn at all.
+                _bloodColorBtns[i].Disabled      = !bloodOn;
+            }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

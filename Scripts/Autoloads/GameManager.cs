@@ -11,6 +11,14 @@ public partial class GameManager : Node
     [Signal] public delegate void WaveCompletedEventHandler(int waveNumber);
     [Signal] public delegate void EnemiesRemainingChangedEventHandler(int count);
     [Signal] public delegate void GameOverEventHandler();
+    // Raised on EVERY peer, not just the host: each machine instantiates its own copy of the
+    // boss, and each machine's HUD and music react locally. Carries the node so listeners can
+    // read its name and health without a lookup.
+    [Signal] public delegate void BossSpawnedEventHandler(Node boss);
+    [Signal] public delegate void BossDefeatedEventHandler();
+
+    /// <summary>The boss currently alive, or null. Used by the HUD to drive its bar.</summary>
+    public Node? ActiveBoss { get; private set; }
 
     public int CurrentWave { get; private set; }
     public int EnemiesRemaining { get; private set; }
@@ -102,6 +110,19 @@ public partial class GameManager : Node
             IsGameRunning = false;
             EmitSignal(SignalName.GameOver);
         }
+    }
+
+    public void NotifyBossSpawned(Node boss)
+    {
+        ActiveBoss = boss;
+        EmitSignal(SignalName.BossSpawned, boss);
+    }
+
+    public void NotifyBossDefeated(Node boss)
+    {
+        if (ActiveBoss != boss) return; // ignore a stale death from a previous wave's boss
+        ActiveBoss = null;
+        EmitSignal(SignalName.BossDefeated);
     }
 
     public void ResetGame()

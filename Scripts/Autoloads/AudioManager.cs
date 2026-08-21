@@ -29,6 +29,9 @@ public partial class AudioManager : Node
     public const string BarrelPlace  = "barrel_place";
     public const string WaveStart    = "wave_start";
     public const string GameOver     = "game_over";
+    public const string Railgun      = "railgun";
+    public const string Flamethrower = "flamethrower";
+    public const string CryoGun      = "cryogun";
 
     private const int VoiceCount = 16;
     private const string SfxPath = "res://Assets/Audio/SFX/";
@@ -62,6 +65,7 @@ public partial class AudioManager : Node
         {
             Pistol, Shotgun, MachineGun, Knife, Explosion, Hit, EnemyDeath,
             PlayerHurt, PickupAmmo, PickupHealth, BarrelPlace, WaveStart, GameOver,
+            Railgun, Flamethrower, CryoGun,
         };
 
         foreach (var name in names)

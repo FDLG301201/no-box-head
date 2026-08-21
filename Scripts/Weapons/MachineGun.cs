@@ -9,6 +9,8 @@ public partial class MachineGun : Weapon
 {
     public override string WeaponName => "Machine Gun";
     protected override string FireSound => AudioManager.MachineGun;
+    // Hot tracer red — distinguishes a full-auto stream from the pistol's paler yellow at a glance.
+    protected override Color BulletColor => new Color(0.95f, 0.3f, 0.15f);
 
     public override void _Ready()
     {

@@ -21,27 +21,50 @@ public partial class ScoreManager : Node
     {
         (300,  "Barrel"),
         (500,  "Shotgun"),
+        (900,  "Chainsaw"),
         (1500, "MachineGun"),
+        (2200, "Railgun"),
+        (2800, "FlakShotgun"),
         (3000, "Grenade"),
+        (3600, "MineWeapon"),
+        (4200, "RocketLauncher"),
+        (4800, "Flamethrower"),
+        (5400, "CryoGun"),
+        (6000, "TurretWeapon"),
     };
     // Maps internal id → WeaponName (for ammo pack typing).
     private static readonly System.Collections.Generic.Dictionary<string, string> WeaponIdToName = new()
     {
-        { "Shotgun",    "Shotgun"     },
-        { "MachineGun", "Machine Gun" },
-        { "Barrel",     "Barrel"      },
-        { "Grenade",    "Grenade"     },
+        { "Shotgun",     "Shotgun"      },
+        { "MachineGun",  "Machine Gun"  },
+        { "Barrel",      "Barrel"       },
+        { "Grenade",     "Grenade"      },
+        { "Railgun",     "Railgun"      },
+        { "FlakShotgun", "Flak Shotgun" },
+        { "MineWeapon",     "Proximity Mine"  },
+        { "RocketLauncher", "Rocket Launcher" },
+        { "Flamethrower",   "Flamethrower"    },
+        { "CryoGun",        "Cryo Gun"        },
+        { "TurretWeapon",   "Turret"          },
+        // Chainsaw has infinite ammo (like Knife) — deliberately absent, no ammo pack for it.
     };
 
     // Relative drop weight per ammo type when a pack spawns. Barrel drops at the same rate as
     // regular weapons; Grenade ammo stays intentionally rare even after it's unlocked.
     private static readonly System.Collections.Generic.Dictionary<string, float> AmmoDropWeight = new()
     {
-        { "Pistol",      1f    },
-        { "Shotgun",     1f    },
-        { "Machine Gun", 1f    },
-        { "Barrel",      1f    },
-        { "Grenade",     0.12f },
+        { "Pistol",       1f    },
+        { "Shotgun",      1f    },
+        { "Machine Gun",  1f    },
+        { "Barrel",       1f    },
+        { "Grenade",      0.12f },
+        { "Railgun",      0.3f  }, // high-damage piercing shot — kept scarcer than pistol/shotgun
+        { "Flak Shotgun", 0.6f  },
+        { "Proximity Mine", 0.4f  }, // scarcer than the common weapons, more common than Grenade
+        { "Rocket Launcher", 0.35f },
+        { "Flamethrower",   0.5f  },
+        { "Cryo Gun",       0.4f  },
+        { "Turret",         0.3f  }, // powerful and autonomous — kept scarcest of all
     };
     private readonly HashSet<string> _unlockedWeapons = new();
 

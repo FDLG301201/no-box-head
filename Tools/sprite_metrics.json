@@ -1,0 +1,184 @@
+{
+  "Enemy (zombie)": {
+    "canvas": [
+      480,
+      580
+    ],
+    "bounds": [
+      0,
+      32,
+      479,
+      571
+    ],
+    "size": [
+      480,
+      540
+    ],
+    "centre": [
+      240.0,
+      302.0
+    ],
+    "clipped": true,
+    "scale": 0.075,
+    "onScreen": [
+      36.0,
+      40.5
+    ]
+  },
+  "Sprinter": {
+    "canvas": [
+      400,
+      460
+    ],
+    "bounds": [
+      0,
+      0,
+      399,
+      426
+    ],
+    "size": [
+      400,
+      427
+    ],
+    "centre": [
+      200.0,
+      213.5
+    ],
+    "clipped": true,
+    "scale": 0.065,
+    "onScreen": [
+      26.0,
+      27.755
+    ]
+  },
+  "Demon": {
+    "canvas": [
+      480,
+      580
+    ],
+    "bounds": [
+      0,
+      0,
+      479,
+      571
+    ],
+    "size": [
+      480,
+      572
+    ],
+    "centre": [
+      240.0,
+      286.0
+    ],
+    "clipped": true,
+    "scale": 0.085,
+    "onScreen": [
+      40.8,
+      48.62
+    ]
+  },
+  "Ogre": {
+    "canvas": [
+      680,
+      820
+    ],
+    "bounds": [
+      0,
+      40,
+      679,
+      807
+    ],
+    "size": [
+      680,
+      768
+    ],
+    "centre": [
+      340.0,
+      424.0
+    ],
+    "clipped": true,
+    "scale": 0.08,
+    "onScreen": [
+      54.4,
+      61.44
+    ]
+  },
+  "Boss (butcher)": {
+    "canvas": [
+      960,
+      1050
+    ],
+    "bounds": [
+      0,
+      132,
+      959,
+      1049
+    ],
+    "size": [
+      960,
+      918
+    ],
+    "centre": [
+      480.0,
+      591.0
+    ],
+    "clipped": true,
+    "scale": 0.165,
+    "onScreen": [
+      158.4,
+      151.47
+    ]
+  },
+  "BossGigante": {
+    "canvas": [
+      990,
+      1020
+    ],
+    "bounds": [
+      30,
+      120,
+      947,
+      1019
+    ],
+    "size": [
+      918,
+      900
+    ],
+    "centre": [
+      489.0,
+      570.0
+    ],
+    "clipped": true,
+    "scale": 0.17,
+    "onScreen": [
+      156.06,
+      153.0
+    ]
+  },
+  "Player": {
+    "canvas": [
+      480,
+      580
+    ],
+    "bounds": [
+      0,
+      32,
+      479,
+      571
+    ],
+    "size": [
+      480,
+      540
+    ],
+    "centre": [
+      240.0,
+      302.0
+    ],
+    "clipped": true,
+    "scale": 0.078,
+    "onScreen": [
+      37.44,
+      42.12
+    ]
+  }
+}

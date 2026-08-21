@@ -17,6 +17,13 @@ public partial class GrenadeProjectile : Area2D
     // Even at the very edge of the blast a zombie (30 HP) / sprinter (15 HP) dies outright.
     private const float MinDamageFactor = 0.5f;
 
+    /// <summary>
+    /// A mirror of a grenade somebody else threw, spawned so the other players can see it
+    /// arc in and get clear of the blast. The thrower's own grenade resolves the damage, so
+    /// a cosmetic one only plays the bang and the flash.
+    /// </summary>
+    public bool Cosmetic;
+
     private Vector2 _direction;
     private bool    _exploded;
 
@@ -60,6 +67,10 @@ public partial class GrenadeProjectile : Area2D
         SetPhysicsProcess(false);
         AudioManager.Instance?.Play(AudioManager.Explosion);
 
+        // The thrower's grenade is the one that hurts anything; a mirrored copy would double
+        // every blast in a two-player game.
+        if (Cosmetic) { ShowBlast(); return; }
+
         foreach (var node in GetTree().GetNodesInGroup("enemies"))
         {
             if (node is not (IDamageable and Node2D)) continue;
@@ -89,11 +100,14 @@ public partial class GrenadeProjectile : Area2D
         {
             Color    = new Color(1f, 0.55f, 0.1f, 0.75f),
             Size     = new Vector2(ExplosionRadius * 2f, ExplosionRadius * 2f),
-            Position = -new Vector2(ExplosionRadius, ExplosionRadius),
             ZIndex   = 5,
         };
         GetParent()?.AddChild(blast);
-        blast.GlobalPosition = GlobalPosition;
+        // Offset by half the size HERE, not via Position before AddChild: assigning
+        // GlobalPosition afterwards recomputes Position from scratch and threw the centring
+        // away, so the blast drew with its top-left corner on the detonation point — a full
+        // radius down and to the right of where the damage actually landed.
+        blast.GlobalPosition = GlobalPosition - new Vector2(ExplosionRadius, ExplosionRadius);
 
         var tween = blast.CreateTween();
         tween.TweenProperty(blast, "modulate:a", 0f, 0.25f);

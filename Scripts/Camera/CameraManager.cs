@@ -51,13 +51,17 @@ public partial class CameraManager : Node
         _screenRoot = screenRoot;
         _followTarget = localPlayer;
 
-        // Networked: one camera glued to your own player.
-        // Local co-op: split-screen, regardless of the saved camera setting.
+        // Networked play still pins one camera to your own player — every peer renders its own
+        // full screen, so the saved preference does not apply there.
+        //
+        // Everything else follows SettingsManager.CameraMode. Local co-op used to force
+        // SplitScreen here and silently discard the player's choice, which is why picking
+        // "Shared Camera" on desktop did nothing. Deferring to the property is safe on mobile
+        // too: it already returns SplitScreen there unconditionally, because two people cannot
+        // share one phone-sized view (see SettingsManager.CameraMode).
         _mode = _followTarget != null
             ? CameraMode.Shared
-            : (SettingsManager.Instance?.GameMode == GameMode.LocalCoop)
-                ? CameraMode.SplitScreen
-                : (SettingsManager.Instance?.CameraMode ?? CameraMode.Shared);
+            : (SettingsManager.Instance?.CameraMode ?? CameraMode.Shared);
 
         if (_mode == CameraMode.Shared)
             SetupShared();

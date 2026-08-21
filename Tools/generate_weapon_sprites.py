@@ -106,13 +106,101 @@ def barrel():
     return img
 
 
+def railgun():
+    img, d = new_canvas()
+    box(d, 26, 24, 108, 30, METAL_D)       # long thin rail barrel
+    box(d, 30, 18, 100, 24, METAL)         # upper rail
+    box(d, 44, 30, 60, 46, WOOD_D)         # grip
+    box(d, 62, 14, 78, 20, YELLOW)         # capacitor coil
+    box(d, 100, 20, 110, 28, METAL)        # muzzle coil
+    return img
+
+
+def flakshotgun():
+    img, d = new_canvas()
+    box(d, 30, 22, 104, 32, METAL)         # long barrel, same silhouette as shotgun
+    box(d, 24, 26, 44, 40, WOOD)           # stock
+    box(d, 52, 30, 66, 42, WOOD_D)         # pump
+    box(d, 98, 22, 110, 32, YELLOW)        # flak-tipped muzzle to read differently from Shotgun
+    return img
+
+
+def chainsaw():
+    img, d = new_canvas()
+    box(d, 34, 28, 52, 42, WOOD_D)         # rear handle/engine housing
+    box(d, 48, 20, 100, 46, METAL_D)       # bar
+    for x in range(52, 98, 6):             # teeth along the bar
+        d.polygon([(x, 20), (x + 3, 20), (x + 1, 16)], fill=BLADE, outline=OUTLINE)
+    box(d, 36, 18, 46, 28, METAL)          # pull-start cap
+    return img
+
+
+def rocketlauncher():
+    img, d = new_canvas()
+    box(d, 26, 18, 100, 40, METAL_D)       # wide launch tube
+    box(d, 30, 22, 96, 36, METAL)          # tube highlight band
+    box(d, 20, 24, 34, 40, WOOD_D)         # rear grip/shoulder pad
+    box(d, 48, 34, 62, 46, WOOD_D)         # front grip
+    poly(d, [(96, 20), (112, 26), (96, 32)], YELLOW)  # exposed warhead tip
+    return img
+
+
+def mine():
+    img, d = new_canvas()
+    d.ellipse([44, 26, 78, 46], fill=OUTLINE)
+    d.ellipse([48, 29, 74, 43], fill=METAL_D)   # squat disc body
+    d.ellipse([56, 32, 66, 40], fill=(200, 60, 40, 255))  # armed indicator light
+    for ang_x in (46, 76):
+        box(d, ang_x - 3, 22, ang_x + 3, 30, METAL)  # trigger prongs
+    return img
+
+
+def flamethrower():
+    img, d = new_canvas()
+    box(d, 26, 20, 96, 38, METAL_D)        # wide fuel-fed barrel
+    box(d, 30, 24, 80, 34, METAL)          # highlight band
+    box(d, 18, 22, 34, 44, METAL_D)        # tank slung underneath
+    box(d, 44, 30, 58, 42, WOOD_D)         # grip
+    poly(d, [(94, 20), (114, 26), (110, 32), (94, 32)], YELLOW)  # flared nozzle
+    return img
+
+
+def cryogun():
+    img, d = new_canvas()
+    CYAN   = (110, 200, 230, 255)
+    CYAN_D = (70, 150, 190, 255)
+    box(d, 30, 20, 100, 32, METAL_D)       # barrel
+    box(d, 34, 23, 86, 29, CYAN)           # frost-blue highlight
+    box(d, 44, 30, 60, 46, METAL)          # grip
+    box(d, 20, 16, 36, 30, CYAN_D)         # coolant canister
+    box(d, 96, 18, 108, 34, CYAN)          # nozzle vent
+    return img
+
+
+def turret():
+    img, d = new_canvas()
+    box(d, 20, 30, 60, 46, METAL_D)        # base plate / stand
+    box(d, 34, 16, 100, 28, METAL)         # barrel
+    box(d, 38, 12, 60, 34, METAL_D)        # turret body
+    box(d, 96, 18, 108, 26, YELLOW)        # muzzle tip
+    return img
+
+
 WEAPONS = {
-    "pistol.png":     pistol,
-    "shotgun.png":    shotgun,
-    "machinegun.png": machinegun,
-    "knife.png":      knife,
-    "grenade.png":    grenade,
-    "barrel.png":     barrel,
+    "pistol.png":      pistol,
+    "shotgun.png":     shotgun,
+    "machinegun.png":  machinegun,
+    "knife.png":       knife,
+    "grenade.png":     grenade,
+    "barrel.png":      barrel,
+    "railgun.png":     railgun,
+    "flakshotgun.png": flakshotgun,
+    "chainsaw.png":    chainsaw,
+    "rocketlauncher.png": rocketlauncher,
+    "mine.png":           mine,
+    "flamethrower.png":   flamethrower,
+    "cryogun.png":        cryogun,
+    "turret.png":         turret,
 }
 
 if __name__ == "__main__":

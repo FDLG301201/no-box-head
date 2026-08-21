@@ -41,6 +41,14 @@ public partial class Player : CharacterBody2D
         { "Knife",       "res://Assets/Sprites/Weapons/knife.png"      },
         { "Grenade",     "res://Assets/Sprites/Weapons/grenade.png"    },
         { "Barrel",      "res://Assets/Sprites/Weapons/barrel.png"     },
+        { "Railgun",     "res://Assets/Sprites/Weapons/railgun.png"    },
+        { "Flak Shotgun","res://Assets/Sprites/Weapons/flakshotgun.png"},
+        { "Chainsaw",    "res://Assets/Sprites/Weapons/chainsaw.png"   },
+        { "Rocket Launcher", "res://Assets/Sprites/Weapons/rocketlauncher.png" },
+        { "Proximity Mine",  "res://Assets/Sprites/Weapons/mine.png"           },
+        { "Flamethrower",    "res://Assets/Sprites/Weapons/flamethrower.png"   },
+        { "Cryo Gun",        "res://Assets/Sprites/Weapons/cryogun.png"        },
+        { "Turret",          "res://Assets/Sprites/Weapons/turret.png"         },
     };
     // Where the weapon sits relative to the body when facing right (mirrored when facing left).
     private static readonly Vector2 WeaponOffset = new(11f, 4f);
@@ -52,9 +60,8 @@ public partial class Player : CharacterBody2D
     private VirtualJoystick?  _moveJoystick;
     private VirtualJoystick?  _aimJoystick;
     private bool              _isLocalPlayer;
+    private SpriteAnimator?   _animator;
     private Vector2           _lastAimDir = Vector2.Up;
-    // Tracks KP_0 held state for P2 (physical key check, Num Lock independent).
-    private bool              _p2ShootHeld;
     // Held state of the on-screen fire button (touch builds only).
     private bool              _touchFireHeld;
 
@@ -68,6 +75,9 @@ public partial class Player : CharacterBody2D
         CurrentHealth = MaxHealth;
         _isLocalPlayer = !NetworkManager.IsNetworked || IsMultiplayerAuthority();
         BuildPlaceholderVisual();
+        // Only the body bobs; the held weapon stays put so it keeps reading as gripped rather
+        // than floating alongside a moving hand.
+        if (_visual != null) _animator = new SpriteAnimator(this, _visual, MoveSpeed);
         AddToGroup("players");
         // Register every player, not just the one this peer drives. Enemies are simulated on
         // the host and pick their target with GameManager.GetNearestPlayer, so registering
@@ -93,23 +103,14 @@ public partial class Player : CharacterBody2D
     public override void _Input(InputEvent ev)
     {
         if (!_isLocalPlayer) return;
-        if (!UsesSecondaryBindings)
-        {
-            if (ev.IsActionPressed("switch_weapon"))      SwitchToNextWeapon();
-            if (ev.IsActionPressed("switch_weapon_prev")) SwitchToPreviousWeapon();
-            if (ev.IsActionPressed("knife"))              ToggleKnife();
-        }
-        else if (ev is InputEventKey { Echo: false } key)
-        {
-            // P2 uses direct physical key checks so numpad works regardless of Num Lock / action mapping.
-            switch (key.PhysicalKeycode)
-            {
-                case Key.Kp0: _p2ShootHeld = key.Pressed;                break;
-                case Key.Kp1: if (key.Pressed) SwitchToNextWeapon();     break;
-                case Key.Kp2: if (key.Pressed) ToggleKnife();            break;
-                case Key.Kp3: if (key.Pressed) SwitchToPreviousWeapon(); break;
-            }
-        }
+        // A() resolves to the "_p2" action variants for player two of a local co-op game (see
+        // UsesSecondaryBindings) — those default to arrows + numpad, defined in the input map
+        // with physical keycodes, so this works regardless of Num Lock the same way the old
+        // direct-physical-key check did, but through SettingsManager's bindings so it's
+        // rebindable from the Settings screen like player one's controls.
+        if (ev.IsActionPressed(A("switch_weapon")))      SwitchToNextWeapon();
+        if (ev.IsActionPressed(A("switch_weapon_prev"))) SwitchToPreviousWeapon();
+        if (ev.IsActionPressed(A("knife")))               ToggleKnife();
     }
 
     public override void _PhysicsProcess(double delta)
@@ -134,8 +135,10 @@ public partial class Player : CharacterBody2D
 
                 if (ShouldShoot())
                 {
-                    // Auto-switch to knife when ranged weapon is empty.
-                    if (!(_currentWeapon is Knife) &&
+                    // Auto-switch to knife when a ranged weapon runs dry. Keyed on InfiniteAmmo
+                    // rather than "is Knife": the Chainsaw is also an ∞-ammo melee weapon, and
+                    // the old type check swapped it out the instant the player tried to use it.
+                    if (!_currentWeapon.InfiniteAmmo &&
                         _currentWeapon.CurrentAmmo <= 0 &&
                         _currentWeapon.ReserveAmmo <= 0)
                     {
@@ -223,8 +226,7 @@ public partial class Player : CharacterBody2D
         // unusable on touch, since there'd be no way to shoot without overriding the aim.
         if (_aimJoystick?.IsActive == true) return true;
         if (_touchFireHeld) return true;
-        if (!UsesSecondaryBindings) return Input.IsActionPressed("shoot");
-        return _p2ShootHeld;
+        return Input.IsActionPressed(A("shoot"));
     }
 
     // ── Weapon management ─────────────────────────────────────────────────────
@@ -378,10 +380,11 @@ public partial class Player : CharacterBody2D
 
     private void BuildPlaceholderVisual()
     {
-        // Sprite's native canvas is 480x580 with the character's visual center around
-        // (239, 301) — offset math below keeps that point pinned to the node's origin
-        // (where the collision circle and pathing both live) regardless of scale.
-        const float scale = 0.078f;
+        // Canvas 501x453, character's visual centre (258, 226.5) — taken from the art's ALPHA BOUNDS, not the
+        // canvas middle, so the body stays pinned to the node origin where the collision circle
+        // and pathing live. Both numbers are derived, never eyeballed: after any art re-export run
+        // `python Tools/sprite_metrics.py emit` and paste what it prints.
+        const float scale = 0.10400f;
         // Each slot gets its own skin (offset from the chosen one), so players stay
         // distinguishable without tinting the artwork.
         var skin = PlayerSkins.ForPlayer(PlayerIndex);
@@ -391,7 +394,7 @@ public partial class Player : CharacterBody2D
             Texture  = ResourceLoader.Load<Texture2D>(skin.Path),
             Centered = false,
             Scale    = new Vector2(scale, scale),
-            Position = new Vector2(-239.5f * scale, -301.5f * scale),
+            Position = new Vector2(-258f * scale, -226.5f * scale),
             Modulate = _spriteTint,
         };
         AddChild(_visual);
@@ -442,6 +445,10 @@ public partial class Player : CharacterBody2D
         if (_visual == null) return;
         _visual.Modulate = _spriteTint with { A = moveDir.LengthSquared() > 0.01f ? 0.85f : 1f };
     }
+
+    // In _Process rather than _PhysicsProcess so a remote player — whose position arrives by
+    // RPC and never runs the movement code here — still animates on this machine.
+    public override void _Process(double delta) => _animator?.Update((float)delta);
 
     // Mirrors the body and moves the weapon to the correct side so it always reads as held.
     private void FaceDirection(bool faceLeft)

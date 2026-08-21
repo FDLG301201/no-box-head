@@ -102,12 +102,83 @@ def barrel():
     return img
 
 
+def railgun():
+    img, d = new_canvas()
+    # single glowing capacitor slug, distinct from the brass bullet stacks
+    box(d, 16, 10, 32, 40, METAL_D)
+    box(d, 19, 13, 29, 37, (110, 200, 230, 255))
+    d.rectangle([19, 22, 29, 26], fill=(226, 184, 66, 255))  # coil band
+    return img
+
+
+def flakshotgun():
+    img, d = new_canvas()
+    # shotgun shell pair but with a yellow flak tip so it reads apart from plain Shotgun ammo
+    for cx in (18, 32):
+        box(d, cx - 6, 12, cx + 6, 40, RED)
+        box(d, cx - 6, 32, cx + 6, 42, BRASS)
+        d.rectangle([cx - 6, 20, cx + 6, 22], fill=RED_D)
+        d.ellipse([cx - 3, 8, cx + 3, 14], fill=(222, 190, 40, 255))
+    return img
+
+
+def rocketlauncher():
+    img, d = new_canvas()
+    # single stubby rocket, nose up
+    box(d, 16, 14, 32, 40, METAL_D)
+    box(d, 18, 16, 30, 38, (150, 60, 40, 255))
+    d.polygon([(18, 16), (30, 16), (24, 6)], fill=(222, 190, 40, 255))  # warhead tip
+    d.rectangle([18, 30, 30, 33], fill=METAL_D)  # fin band
+    return img
+
+
+def mine():
+    img, d = new_canvas()
+    d.ellipse([8, 18, 40, 38], fill=OUTLINE)
+    d.ellipse([11, 20, 37, 36], fill=METAL_D)
+    d.ellipse([19, 24, 29, 32], fill=(200, 60, 40, 255))  # armed light
+    return img
+
+
+def flamethrower():
+    img, d = new_canvas()
+    # squat fuel canister with a flame-orange band
+    box(d, 12, 10, 36, 40, METAL_D)
+    box(d, 15, 13, 33, 37, (150, 60, 40, 255))
+    d.rectangle([15, 22, 33, 26], fill=(222, 190, 40, 255))  # warning band
+    return img
+
+
+def cryogun():
+    img, d = new_canvas()
+    CYAN = (110, 200, 230, 255)
+    box(d, 12, 10, 36, 40, METAL_D)
+    box(d, 15, 13, 33, 37, CYAN)
+    d.rectangle([15, 22, 33, 26], fill=(226, 184, 66, 255))  # coil band, matches railgun ammo language
+    return img
+
+
+def turret():
+    img, d = new_canvas()
+    d.ellipse([8, 20, 40, 40], fill=OUTLINE)
+    d.ellipse([11, 22, 37, 38], fill=METAL_D)
+    box(d, 16, 8, 32, 22, (150, 150, 160, 255))  # stowed barrel
+    return img
+
+
 AMMO = {
-    "pistol.png":     pistol,
-    "machinegun.png": machinegun,
-    "shotgun.png":    shotgun,
-    "grenade.png":    grenade,
-    "barrel.png":     barrel,
+    "pistol.png":       pistol,
+    "machinegun.png":   machinegun,
+    "shotgun.png":      shotgun,
+    "grenade.png":      grenade,
+    "barrel.png":       barrel,
+    "railgun.png":      railgun,
+    "flakshotgun.png":  flakshotgun,
+    "rocketlauncher.png": rocketlauncher,
+    "mine.png":           mine,
+    "flamethrower.png":   flamethrower,
+    "cryogun.png":        cryogun,
+    "turret.png":         turret,
 }
 
 if __name__ == "__main__":

@@ -13,10 +13,6 @@ public partial class BloodSystem : Node2D
 {
     public static BloodSystem? Instance { get; private set; }
 
-    private static readonly Color BloodDark  = new(0.36f, 0.03f, 0.04f);
-    private static readonly Color BloodMid   = new(0.52f, 0.05f, 0.05f);
-    private static readonly Color BloodBright = new(0.68f, 0.08f, 0.08f);
-
     private SubViewport?  _viewport;
     private BloodPainter? _painter;
 
@@ -56,11 +52,14 @@ public partial class BloodSystem : Node2D
     /// <summary>Spray from a bullet/melee impact: a small stain plus droplets thrown along the hit.</summary>
     public void Splatter(Vector2 worldPos, Vector2 direction, float scale = 1f)
     {
-        if (_painter == null) return;
+        // Blood-off must suppress both the permanent stain and the particle burst below —
+        // returning here before either is spawned covers both in one guard.
+        if (_painter == null || !(SettingsManager.Instance?.BloodEnabled ?? true)) return;
 
+        var shades = BloodPalettes.Current();
         var dir = direction.LengthSquared() > 0.001f ? direction.Normalized() : Vector2.Right;
 
-        _painter.Queue(worldPos, 3.5f * scale, BloodMid);
+        _painter.Queue(worldPos, 3.5f * scale, shades.Mid);
 
         int drops = 3 + (int)(GD.Randi() % 3);
         for (int i = 0; i < drops; i++)
@@ -68,17 +67,20 @@ public partial class BloodSystem : Node2D
             float spread = (GD.Randf() - 0.5f) * 1.2f;
             float dist   = (7f + GD.Randf() * 24f) * scale;
             var   pos    = worldPos + dir.Rotated(spread) * dist;
-            _painter.Queue(pos, (1.2f + GD.Randf() * 2.3f) * scale, PickShade());
+            _painter.Queue(pos, (1.2f + GD.Randf() * 2.3f) * scale, PickShade(shades));
         }
 
         Flush();
-        SpawnBurst(worldPos, dir, 6, scale, 0.35f);
+        SpawnBurst(worldPos, dir, 6, scale, 0.35f, shades.Bright);
     }
 
     /// <summary>Death puddle: a wide irregular pool with droplets scattered around it.</summary>
     public void Pool(Vector2 worldPos, float scale = 1f)
     {
-        if (_painter == null) return;
+        // See Splatter: this guard also covers the particle burst spawned at the end.
+        if (_painter == null || !(SettingsManager.Instance?.BloodEnabled ?? true)) return;
+
+        var shades = BloodPalettes.Current();
 
         // Overlapping blobs give the puddle an uneven, organic edge.
         int blobs = 5 + (int)(GD.Randi() % 4);
@@ -87,7 +89,7 @@ public partial class BloodSystem : Node2D
             float angle  = GD.Randf() * Mathf.Tau;
             float dist   = GD.Randf() * 7f * scale;
             var   pos    = worldPos + Vector2.FromAngle(angle) * dist;
-            _painter.Queue(pos, (6f + GD.Randf() * 7f) * scale, i % 2 == 0 ? BloodDark : BloodMid);
+            _painter.Queue(pos, (6f + GD.Randf() * 7f) * scale, i % 2 == 0 ? shades.Dark : shades.Mid);
         }
 
         int drops = 6 + (int)(GD.Randi() % 6);
@@ -96,11 +98,11 @@ public partial class BloodSystem : Node2D
             float angle = GD.Randf() * Mathf.Tau;
             float dist  = (10f + GD.Randf() * 30f) * scale;
             var   pos   = worldPos + Vector2.FromAngle(angle) * dist;
-            _painter.Queue(pos, (1.5f + GD.Randf() * 3f) * scale, PickShade());
+            _painter.Queue(pos, (1.5f + GD.Randf() * 3f) * scale, PickShade(shades));
         }
 
         Flush();
-        SpawnBurst(worldPos, Vector2.Up, 14, scale, 0.5f);
+        SpawnBurst(worldPos, Vector2.Up, 14, scale, 0.5f, shades.Bright);
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
@@ -113,15 +115,15 @@ public partial class BloodSystem : Node2D
         _viewport.RenderTargetUpdateMode = SubViewport.UpdateMode.Once;
     }
 
-    private static Color PickShade() => (GD.Randi() % 3) switch
+    private static Color PickShade(BloodPalettes.Shades shades) => (GD.Randi() % 3) switch
     {
-        0 => BloodDark,
-        1 => BloodMid,
-        _ => BloodBright,
+        0 => shades.Dark,
+        1 => shades.Mid,
+        _ => shades.Bright,
     };
 
     // Short-lived particles so the hit reads as an impact; the stain behind them is what lasts.
-    private void SpawnBurst(Vector2 worldPos, Vector2 dir, int amount, float scale, float lifetime)
+    private void SpawnBurst(Vector2 worldPos, Vector2 dir, int amount, float scale, float lifetime, Color color)
     {
         var particles = new CpuParticles2D
         {
@@ -139,7 +141,7 @@ public partial class BloodSystem : Node2D
             InitialVelocityMax = 190f * scale,
             ScaleAmountMin    = 1.5f * scale,
             ScaleAmountMax    = 3.5f * scale,
-            Color             = BloodBright,
+            Color             = color,
         };
         GetParent()?.AddChild(particles);
 

@@ -3,19 +3,32 @@ using Godot;
 namespace NoBoxHead;
 
 /// <summary>
-/// Utility "weapon": drops a destructible barrel a short distance in front of the player to
-/// block a path. Reuses Weapon's ammo/cooldown machinery, just spawns a Barrel instead of a
-/// bullet. Starts with a handful of charges and refills from ammo packs at the same rate as
-/// any other weapon (see ScoreManager.AmmoDropWeight).
+/// Utility "weapon": drops a destructible barrel at the player's own position to block a path.
+/// Reuses Weapon's ammo/cooldown machinery, just spawns a Barrel instead of a bullet. Starts
+/// with a handful of charges and refills from ammo packs at the same rate as any other weapon
+/// (see ScoreManager.AmmoDropWeight).
 /// </summary>
 public partial class BarrelWeapon : Weapon
 {
     public override string WeaponName => "Barrel";
     protected override string FireSound => AudioManager.BarrelPlace;
 
-    private const float PlacementDistance = 46f;
-    // Slightly larger than Barrel.Size (30) so barrels never end up flush against each other.
-    private const float BarrelFootprint   = 34f;
+    // Equal to Barrel.Size (30) minus a hair, so a row of barrels CAN end up flush against each
+    // other. Measured by probe (see Tests/ProbeBarrelGap, deleted after use): a shape query of
+    // exactly 30x30 centred 30px from an existing barrel — i.e. perfectly edge-to-edge — still
+    // reports an overlap (1 hit), while 29.99 already reports clear. The cutoff sits precisely
+    // at 30.0 with no real physics margin to speak of, but placements below aren't computed at
+    // that exact float value — they're built from trig (angle/radius) — so a small safety
+    // margin below the measured threshold avoids flakiness from floating-point drift.
+    private const float BarrelFootprint   = 29.5f;
+
+    // World-anchored grid used to line up flush walls. Placement is otherwise continuous
+    // (derived from a float aim angle), so two barrels dropped a beat apart rarely land on
+    // exactly the same line even when both candidate spots are individually valid. Snapping the
+    // final spot onto a fixed BarrelSize-wide grid (only when the snapped spot is ALSO valid —
+    // see FindPlacementSpot) pulls placements into alignment without making placement feel rigid,
+    // since the unsnapped spot still works as a fallback whenever snapping isn't possible.
+    private const float GridCell = 30f; // matches Barrel.Size, not the shrunk query footprint
 
     public Arena? ArenaRef { get; set; }
     public Node?  ObstacleContainer { get; set; }
@@ -41,14 +54,14 @@ public partial class BarrelWeapon : Weapon
     // around SpawnBullet). Otherwise it slides to the closest free slot.
     public override void TryShoot(Vector2 origin, Vector2 direction)
     {
-        if (FindPlacementSpot(origin, direction) == null) return;
+        if (FindPlacementSpot(origin) == null) return;
         base.TryShoot(origin, direction);
     }
 
     protected override void SpawnBullet(Vector2 origin, Vector2 direction)
     {
         if (_barrelScene == null) return;
-        var spot = FindPlacementSpot(origin, direction);
+        var spot = FindPlacementSpot(origin);
         if (spot == null) return;
 
         var barrel = _barrelScene.Instantiate<Barrel>();
@@ -58,39 +71,58 @@ public partial class BarrelWeapon : Weapon
     }
 
     /// <summary>
-    /// Returns the ideal spot in front of the player, or — when that's taken (a wall, another
-    /// barrel…) — the nearest free spot around it, searched in widening rings. Angles are
-    /// tried alternating either side of the aim direction, so a barrel dropped onto an
-    /// existing one lands beside it rather than being refused. Null if nothing fits.
+    /// Returns the player's own position, or — when that spot is genuinely taken (a wall,
+    /// another barrel, an enemy standing there) — the nearest free spot around it, searched in
+    /// widening rings. Deliberately ignores aim direction, and the ring sweep is a fixed one
+    /// rather than aim-relative, so the same blocked situation resolves the same way in every
+    /// aim mode.
+    ///
+    /// The player's own body is intentionally NOT an obstacle here: a barrel is meant to drop
+    /// underneath you. It used to shove you sideways when it did, because a solid barrel
+    /// spawning inside your collision circle leaves the physics engine no other way to resolve
+    /// the overlap. That is fixed in Barrel itself, which ignores collisions with anyone it
+    /// spawned on top of until they step clear — see Barrel.SoftSpawn. Adding the player layer
+    /// to CanPlaceAt would "fix" it by never dropping the barrel underfoot at all, which is the
+    /// behaviour the owner did not want.
     /// </summary>
-    private Vector2? FindPlacementSpot(Vector2 origin, Vector2 direction)
+    private Vector2? FindPlacementSpot(Vector2 origin)
     {
-        var aim   = direction.Normalized();
-        var ideal = origin + aim * PlacementDistance;
-        if (CanPlaceAt(ideal)) return ideal;
+        if (CanPlaceAt(origin)) return SnapIfValid(origin);
 
-        const int   rings      = 5;
-        const float ringStep   = BarrelFootprint * 0.8f;
-        const int   stepsPerHalf = 6; // 6 offsets each side → 30° apart around the ring
+        const int   rings        = 5;
+        const float ringStep     = BarrelFootprint * 0.8f;
+        const int   stepsPerHalf = 6; // 6 offsets each side -> 30 degrees apart around the ring
 
-        float baseAngle = aim.Angle();
         for (int ring = 1; ring <= rings; ring++)
         {
             float radius = ring * ringStep;
             for (int step = 0; step <= stepsPerHalf; step++)
             {
                 float spread = Mathf.Pi * step / stepsPerHalf;
-                // step 0 is straight ahead; afterwards probe both sides before widening.
-                foreach (float angle in step == 0
-                             ? new[] { baseAngle }
-                             : new[] { baseAngle + spread, baseAngle - spread })
+                // step 0 is due east; afterwards probe both sides before widening.
+                foreach (float angle in step == 0 ? new[] { 0f } : new[] { spread, -spread })
                 {
-                    var candidate = ideal + Vector2.FromAngle(angle) * radius;
-                    if (CanPlaceAt(candidate)) return candidate;
+                    var candidate = origin + Vector2.FromAngle(angle) * radius;
+                    if (CanPlaceAt(candidate)) return SnapIfValid(candidate);
                 }
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Pulls an already-valid candidate onto the world-anchored barrel grid when that snapped
+    /// spot is itself still valid, so repeated placements along a rough line settle onto the
+    /// same row/column instead of drifting by whatever the aim angle happened to be. Falls back
+    /// to the original (already-verified) spot otherwise — snapping is a nicety, never a reason
+    /// to refuse a placement that would otherwise succeed.
+    /// </summary>
+    private Vector2 SnapIfValid(Vector2 candidate)
+    {
+        var snapped = new Vector2(
+            Mathf.Round(candidate.X / GridCell) * GridCell,
+            Mathf.Round(candidate.Y / GridCell) * GridCell);
+        return CanPlaceAt(snapped) ? snapped : candidate;
     }
 
     /// <summary>
@@ -111,6 +143,8 @@ public partial class BarrelWeapon : Weapon
         {
             Shape             = new RectangleShape2D { Size = new Vector2(BarrelFootprint, BarrelFootprint) },
             Transform         = new Transform2D(0f, point),
+            // Players (layer 2) are deliberately absent: a barrel is supposed to be
+            // placeable underfoot. Barrel.SoftSpawn stops that from shoving anyone.
             CollisionMask     = 1 | 4, // static geometry + barrels, and enemies
             CollideWithBodies = true,
             CollideWithAreas  = false,

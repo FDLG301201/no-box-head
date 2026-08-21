@@ -170,7 +170,17 @@ public partial class Arena : Node2D
 			CreateObstacle(center, size);
 	}
 
-	private const float NavMargin = 10f; // ≈ enemy body radius + buffer
+	// Added on every side of every carved obstacle/barrel, so it doubles up on any gap flanked
+	// by two carved shapes (e.g. two barrels, or a barrel next to an obstacle): the walkable
+	// mesh remaining between them is the physical gap minus 2×NavMargin. At the old 10f, a
+	// 30x30 barrel carved a 50x50 hole and a physical gap needed >20px of clearance beyond the
+	// shapes themselves before the nav mesh called it reachable — well past what the smallest
+	// enemy (Sprinter, body radius 9) or the common case (Enemy, body radius 11) actually need,
+	// which is why a single well-placed barrel could wall off a route a zombie would otherwise
+	// fit through. 6f keeps a real buffer — still bigger than Sprinter's own radius, so the nav
+	// path doesn't get routed close enough to visibly cut a barrel's corner — while cutting the
+	// over-carve on each flanked gap from 20px to 12px.
+	private const float NavMargin = 6f;
 
 	private void BuildNavigationRegion()
 	{
@@ -546,11 +556,19 @@ public partial class Arena : Node2D
 				{
 					Weapon? w = weaponName switch
 					{
-						"Shotgun"    => (Weapon)new Shotgun(),
-						"MachineGun" => (Weapon)new MachineGun(),
-						"Grenade"    => (Weapon)new GrenadeLauncher(),
-						"Barrel"     => (Weapon)new BarrelWeapon(),
-						_            => null,
+						"Shotgun"     => (Weapon)new Shotgun(),
+						"MachineGun"  => (Weapon)new MachineGun(),
+						"Grenade"     => (Weapon)new GrenadeLauncher(),
+						"Barrel"      => (Weapon)new BarrelWeapon(),
+						"Railgun"     => (Weapon)new Railgun(),
+						"FlakShotgun" => (Weapon)new FlakShotgun(),
+						"Chainsaw"    => (Weapon)new Chainsaw(),
+						"RocketLauncher" => (Weapon)new RocketLauncher(),
+						"MineWeapon"     => (Weapon)new MineWeapon(),
+						"Flamethrower"   => (Weapon)new Flamethrower(),
+						"CryoGun"        => (Weapon)new CryoGun(),
+						"TurretWeapon"   => (Weapon)new TurretWeapon(),
+						_             => null,
 					};
 					if (w == null || !IsInstanceValid(capturedPlayer)) return;
 					w.BulletContainer = _bullets;

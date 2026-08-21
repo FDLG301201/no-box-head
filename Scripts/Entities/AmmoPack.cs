@@ -22,6 +22,13 @@ public partial class AmmoPack : Area2D
         { "Machine Gun", "res://Assets/Sprites/Ammo/machinegun.png" },
         { "Barrel",      "res://Assets/Sprites/Ammo/barrel.png"     },
         { "Grenade",     "res://Assets/Sprites/Ammo/grenade.png"    },
+        { "Railgun",     "res://Assets/Sprites/Ammo/railgun.png"    },
+        { "Flak Shotgun","res://Assets/Sprites/Ammo/flakshotgun.png"},
+        { "Rocket Launcher", "res://Assets/Sprites/Ammo/rocketlauncher.png" },
+        { "Proximity Mine",  "res://Assets/Sprites/Ammo/mine.png"           },
+        { "Flamethrower",    "res://Assets/Sprites/Ammo/flamethrower.png"   },
+        { "Cryo Gun",        "res://Assets/Sprites/Ammo/cryogun.png"        },
+        { "Turret",          "res://Assets/Sprites/Ammo/turret.png"         },
     };
 
     public override void _Ready()

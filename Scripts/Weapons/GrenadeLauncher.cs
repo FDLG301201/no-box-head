@@ -32,10 +32,26 @@ public partial class GrenadeLauncher : Weapon
 
     protected override void SpawnBullet(Vector2 origin, Vector2 direction)
     {
+        Throw(origin, direction, cosmetic: false);
+
+        // Without this the grenade only ever existed on the thrower's machine: the other
+        // players saw no arc and no warning, just enemies dying. Same mirroring the rifles
+        // and the demon's fireball already do.
+        if (NetworkManager.IsNetworked)
+            Rpc(MethodName.ThrowGrenadeRpc, origin, direction);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, CallLocal = false)]
+    private void ThrowGrenadeRpc(Vector2 origin, Vector2 direction) =>
+        Throw(origin, direction, cosmetic: true);
+
+    private void Throw(Vector2 origin, Vector2 direction, bool cosmetic)
+    {
         if (_grenadeScene == null) return;
         var grenade = _grenadeScene.Instantiate<GrenadeProjectile>();
         grenade.Damage         = BulletDamage;
         grenade.KnockbackForce = BulletKnockback;
+        grenade.Cosmetic       = cosmetic;
         (BulletContainer ?? GetTree().Root).AddChild(grenade);
         grenade.Init(origin, direction);
     }
