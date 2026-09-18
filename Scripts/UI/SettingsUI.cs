@@ -69,6 +69,7 @@ public partial class SettingsUI : Control
         BuildBloodSection(vbox);
         BuildAimSection(vbox);
         if (!Platform.IsMobile) BuildControlsSection(vbox);
+        BuildPrivacySection(vbox);
 
         UpdateButtonStates();
 
@@ -306,6 +307,31 @@ public partial class SettingsUI : Control
 
         aimRow.AddChild(_aimAutoBtn);
 
+        vbox.AddChild(Spacer(16));
+    }
+
+    /// <summary>
+    /// Entry point for reopening the ad consent form. Not optional decoration: once a user in
+    /// the EEA/UK has answered the consent prompt, Google requires the app to keep offering a
+    /// way to change that answer, and shipping without one is a compliance failure rather than a
+    /// missing nicety.
+    ///
+    /// The whole section is hidden when UMP says this user does not need it — which is everyone
+    /// outside those regions, and everyone on desktop, where there are no ads at all. A settings
+    /// screen that shows a privacy button leading to nothing would be worse than none.
+    /// </summary>
+    private void BuildPrivacySection(VBoxContainer vbox)
+    {
+        if (AdManager.Instance?.PrivacyOptionsRequired != true) return;
+
+        var header = MakeLabel("Privacy");
+        header.AddThemeFontSizeOverride("font_size", 18);
+        vbox.AddChild(header);
+
+        var btn = new Button { Text = "Ad privacy settings", CustomMinimumSize = new Vector2(0, 44) };
+        btn.AddThemeFontSizeOverride("font_size", 16);
+        btn.Pressed += () => AdManager.Instance?.ShowPrivacyOptions();
+        vbox.AddChild(btn);
         vbox.AddChild(Spacer(16));
     }
 

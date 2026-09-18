@@ -11,6 +11,8 @@ public partial class MainMenuUI : Control
 	private const int RowGap       = 10;
 	private const int ButtonHeight = 42;
 
+	private ScrollContainer? _scroll;
+
 	public override void _Ready()
 	{
 		GameManager.Instance?.ResetGame();
@@ -20,6 +22,31 @@ public partial class MainMenuUI : Control
 		// menu → game → back-to-menu transitions instead of restarting on every scene change:
 		// MusicManager.Play() is a no-op when the requested track is already the one playing.
 		MusicManager.Instance?.PlaySelected();
+
+		// The banner is an OS overlay painted over the bottom of the window, not a node in this
+		// scene, so nothing about our layout knows it exists. Shrinking the scroll area by its
+		// height is what keeps the bottom button reachable instead of sitting underneath it —
+		// overlapping them would generate taps the player never meant to make on the ad.
+		AdManager.Instance?.ShowMenuBanner(ReserveBannerSpace);
+	}
+
+	/// <summary>
+	/// Gives the banner its own strip at the bottom of the screen. Called on load (and again with
+	/// 0 if the ad fails), never with a guessed value.
+	/// </summary>
+	private void ReserveBannerSpace(float uiHeight)
+	{
+		if (_scroll == null || !IsInstanceValid(_scroll)) return;
+		// Negative because the scroll container is anchored to the bottom edge: this pulls its
+		// bottom up by exactly the banner's height.
+		_scroll.OffsetBottom = -uiHeight;
+	}
+
+	public override void _ExitTree()
+	{
+		// Leaving the menu means gameplay is next, and a banner there would cover the arena and
+		// sit on top of the touch controls.
+		AdManager.Instance?.HideMenuBanner();
 	}
 
 	private void BuildUI()
@@ -49,6 +76,7 @@ public partial class MainMenuUI : Control
 			HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
 		};
 		AddChild(scroll);
+		_scroll = scroll;
 
 		// ScrollContainer places its child at the origin and only stretches it when the child
 		// asks to expand, so ShrinkCenter on the child alone does nothing and the menu hugs the

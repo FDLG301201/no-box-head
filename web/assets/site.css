@@ -1,0 +1,290 @@
+/* No Box Head — site styles.
+   Palette sampled from the player sprite (jugador.png). No external fonts or requests:
+   a privacy-policy site that leaked visitor IPs to a font CDN would contradict itself. */
+
+:root {
+  --ink:   #17140f;  /* sprite outline */
+  --floor: #3f4439;  /* arena floor */
+  --grid:  #474c40;  /* arena floor grid */
+  --sheet: #e7e9dc;  /* reading surface */
+  --olive: #5b6b4a;  /* soldier shirt */
+  --cap:   #c22a2a;  /* soldier cap — the one warm accent */
+  --skin:  #d9a066;  /* soldier skin */
+  --focus: #f2d21e;  /* runner yellow, used only for keyboard focus */
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --line: 4px;       /* outline weight, matches the sprites' thick contours */
+  --drop: 6px;       /* hard paper-cutout shadow, never blurred */
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--sheet);
+  background-color: var(--floor);
+  /* the same 28px floor grid as the game's concept board */
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+a { color: inherit; }
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.wrap {
+  width: min(100% - 2.5rem, 68rem);
+  margin-inline: auto;
+}
+
+/* ── Top bar ─────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1.25rem;
+}
+
+.bar-home {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+  font-weight: 900;
+  white-space: nowrap;
+  text-decoration: none;
+  font-size: 1.05rem;
+}
+
+.bar-home img {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--ink);
+  image-rendering: auto;
+}
+
+.bar-links {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  font-size: .95rem;
+}
+
+.bar-links a { text-underline-offset: 3px; }
+
+/* Language switch: two plain buttons, the active one filled. */
+.lang {
+  display: inline-flex;
+  border: 3px solid var(--ink);
+}
+
+.lang button {
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 700;
+  padding: .2rem .6rem;
+  border: 0;
+  cursor: pointer;
+  background: var(--sheet);
+  color: var(--ink);
+}
+
+.lang button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--sheet);
+}
+
+/* Only one language is shown once the script has picked one. Without JS both stay visible. */
+html[data-lang="es"] [lang="en"]:not(html),
+html[data-lang="en"] [lang="es"]:not(html) { display: none; }
+
+/* ── Landing: title as three cardboard boxes ─────────── */
+
+.hero { padding-block: 2.5rem 0; }
+
+.title {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem 1rem;
+  font-weight: 900;
+  font-size: clamp(2.75rem, 11vw, 7.5rem);
+  line-height: 1;
+  letter-spacing: -.02em;
+}
+
+.title span {
+  display: inline-block;
+  padding: .12em .28em .16em;
+  color: var(--ink);
+  background: var(--skin);
+  border: var(--line) solid var(--ink);
+  box-shadow: var(--drop) var(--drop) 0 var(--ink);
+}
+
+/* Each box is a different sprite colour, in lineup order. */
+.title span:nth-child(2) { background: var(--sheet); }
+.title span:nth-child(3) { background: var(--cap); color: var(--sheet); }
+
+.pitch {
+  max-width: 34rem;
+  margin: 2rem 0 1.5rem;
+  font-size: 1.25rem;
+  line-height: 1.5;
+}
+
+.store {
+  display: inline-block;
+  padding: .8rem 1.3rem;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--sheet);
+  background: var(--olive);
+  border: var(--line) solid var(--ink);
+  box-shadow: var(--drop) var(--drop) 0 var(--ink);
+  text-decoration: none;
+}
+
+.store small {
+  display: block;
+  font-weight: 500;
+  font-size: .8rem;
+  opacity: .85;
+}
+
+/* ── The lineup: real sprites at their true in-game scale ─ */
+
+.lineup {
+  /* One in-game pixel of height. Measured, the row is ~390 game units wide: the five
+     characters (235), the 70% of the Colossus left in frame (109), five gaps (40) and the
+     padding. The unit is derived from the same width as .wrap, so the whole row fits at every
+     screen size and stays in exact in-game proportion. */
+  --u: min(3.2px, calc(min(100vw - 2.5rem, 68rem) / 395));
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: calc(8 * var(--u));
+  margin-top: 3rem;
+  padding-left: calc(3 * var(--u));
+  border-bottom: var(--line) solid var(--ink);
+  overflow: hidden;
+}
+
+.lineup img { display: block; width: auto; flex: none; }
+.lineup .runner  { height: calc(27.8 * var(--u)); }
+.lineup .zombie  { height: calc(40.5 * var(--u)); }
+.lineup .soldier { height: calc(42.1 * var(--u)); }
+.lineup .demon   { height: calc(48.6 * var(--u)); }
+.lineup .ogre    { height: calc(61.4 * var(--u)); }
+
+/* The boss towers over everyone and is cut by the edge — too big for the frame. */
+.lineup .colossus {
+  height: calc(153 * var(--u));
+  margin-left: auto;
+  /* crops a fixed 30% of its own width, so the boss reads as "too big for the frame" the same
+     way on a phone as on a monitor */
+  margin-right: calc(-47 * var(--u));
+}
+
+/* The only ambient motion on the site: the 2px walk bob the characters do in-game. */
+@media (prefers-reduced-motion: no-preference) {
+  .lineup img:not(.colossus) { animation: bob .9s ease-in-out infinite; }
+  .lineup img:nth-child(2) { animation-delay: -.2s; }
+  .lineup img:nth-child(3) { animation-delay: -.45s; }
+  .lineup img:nth-child(4) { animation-delay: -.1s; }
+  .lineup img:nth-child(5) { animation-delay: -.6s; }
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+
+/* ── Reading sheet (features, policy) ────────────────── */
+
+.sheet {
+  color: var(--ink);
+  background: var(--sheet);
+  border: var(--line) solid var(--ink);
+  box-shadow: var(--drop) var(--drop) 0 var(--ink);
+  padding: clamp(1.25rem, 4vw, 2.75rem);
+  margin-block: 3rem;
+}
+
+.sheet > * { max-width: 42rem; }
+
+.sheet h1 {
+  font-size: clamp(1.9rem, 5vw, 2.6rem);
+  line-height: 1.15;
+  font-weight: 900;
+  margin: 0 0 .5rem;
+}
+
+.sheet h2 {
+  font-size: 1.3rem;
+  line-height: 1.3;
+  font-weight: 900;
+  margin: 2.25rem 0 .5rem;
+  padding-left: .75rem;
+  border-left: 8px solid var(--olive);
+}
+
+.sheet h3 {
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin: 1.5rem 0 .25rem;
+}
+
+.sheet p, .sheet ul { margin: .5rem 0 1rem; }
+.sheet ul { padding-left: 1.2rem; }
+.sheet li { margin-bottom: .35rem; }
+.sheet a { color: var(--cap); font-weight: 600; text-underline-offset: 3px; }
+
+.meta { margin: 0 0 1.5rem; font-size: .95rem; }
+.meta div { margin: 0; }
+
+.summary {
+  background: var(--skin);
+  border: 3px solid var(--ink);
+  padding: 1rem 1.25rem .25rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.summary h2 { margin-top: 0; padding-left: 0; border: 0; }
+
+/* Feature list on the landing: each item marked by the sprite it describes. */
+.features { list-style: none; padding: 0; margin: 1rem 0 0; }
+.features li {
+  display: grid;
+  grid-template-columns: 3rem 1fr;
+  gap: 1rem;
+  align-items: center;
+  padding-block: .75rem;
+  border-top: 2px solid var(--ink);
+}
+.features li:first-child { border-top: 0; }
+.features img { width: 3rem; height: 3rem; object-fit: contain; }
+
+/* ── Footer ──────────────────────────────────────────── */
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.5rem;
+  padding-block: 1rem 2.5rem;
+  font-size: .95rem;
+}
+
+.foot a { text-underline-offset: 3px; }

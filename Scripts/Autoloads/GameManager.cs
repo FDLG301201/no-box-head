@@ -112,6 +112,17 @@ public partial class GameManager : Node
         }
     }
 
+    /// <summary>
+    /// Restarts a run that OnPlayerDied had ended, after the player bought their way back in
+    /// with a rewarded ad. A dedicated method rather than opening up the IsGameRunning setter:
+    /// there is exactly one legitimate reason to un-end a finished run, and this is it.
+    /// </summary>
+    public void ResumeAfterRevive()
+    {
+        if (_players.Count == 0) return; // nobody was actually revived; leave the run ended
+        IsGameRunning = true;
+    }
+
     public void NotifyBossSpawned(Node boss)
     {
         ActiveBoss = boss;

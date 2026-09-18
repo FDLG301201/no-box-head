@@ -6,4 +6,15 @@
     <Nullable>enable</Nullable>
     <LangVersion>12</LangVersion>
   </PropertyGroup>
+
+  <!--
+    The AdMob addon ships a demo scene under csharp/sample. Godot compiles every .cs under the
+    project root into this one assembly, so those files would ship inside the game and, worse,
+    they do not build here: they were written without the SDK's implicit usings, so bare `Timer`
+    is ambiguous between Godot.Timer and System.Threading.Timer. Nothing in the addon's src/
+    references the sample, so dropping it costs nothing.
+  -->
+  <ItemGroup>
+    <Compile Remove="addons/admob/csharp/sample/**/*.cs" />
+  </ItemGroup>
 </Project>

@@ -352,7 +352,8 @@ public partial class Arena : Node2D
 		{
 			_hud = hudScene.Instantiate<HUD>();
 			AddChild(_hud);
-			_hud.PauseCallback = RequestTogglePause;
+			_hud.PauseCallback  = RequestTogglePause;
+			_hud.ReviveCallback = ReviveAfterRewardedAd;
 		}
 
 		// Split-screen views are screen space. As a plain Control child of Arena (a Node2D) the
@@ -638,6 +639,28 @@ public partial class Arena : Node2D
 			if (!IsInstanceValid(player) || player.IsAlive) continue;
 			player.Revive(PlayerSpawnPositions[player.PlayerIndex % PlayerSpawnPositions.Length]);
 		}
+	}
+
+	/// <summary>
+	/// Puts the run back on its feet after a rewarded ad was watched to completion. Reuses the
+	/// same Player.Revive that OnWaveStartedRevive uses, so a revived player is restored exactly
+	/// the way the game already knows how to restore one — full health, back at their spawn, and
+	/// re-registered with GameManager so enemies target them again.
+	///
+	/// The wave in progress is deliberately left running. Dropping the player back into the
+	/// horde that just killed them is the point: the ad buys a second chance at THIS wave, not a
+	/// free skip to the next one.
+	/// </summary>
+	private void ReviveAfterRewardedAd()
+	{
+		foreach (var player in _spawnedPlayers)
+		{
+			if (!IsInstanceValid(player) || player.IsAlive) continue;
+			player.Revive(PlayerSpawnPositions[player.PlayerIndex % PlayerSpawnPositions.Length]);
+		}
+		// GameManager stopped the run when the last player died; without this the wave spawner
+		// and win/lose checks stay switched off and the revived player wanders an inert arena.
+		GameManager.Instance?.ResumeAfterRevive();
 	}
 
 	private void OnGameOver()

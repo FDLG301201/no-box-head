@@ -104,6 +104,15 @@ public partial class HUD : CanvasLayer
 	public System.Action? SwitchWeaponPrevCallback { get; set; }
 	public System.Action? PauseCallback            { get; set; }
 
+	/// <summary>Invoked when the player has actually EARNED a rewarded ad and should be put back
+	/// into the run. Arena supplies this; the HUD never revives anyone itself.</summary>
+	public System.Action? ReviveCallback           { get; set; }
+
+	// One revive per run. Without this the run never really ends and the score stops meaning
+	// anything. Reset happens for free: the HUD is rebuilt when the scene reloads.
+	private bool   _reviveUsed;
+	private Button? _reviveBtn;
+
 	private float  _maxHealth   = 100f;
 	private int    _currentWave = 1;
 	private Tween? _waveTween;
@@ -746,12 +755,20 @@ public partial class HUD : CanvasLayer
 
 		vbox.AddChild(new HSeparator());
 
+		// Built once and shown or hidden per game over, because whether an ad is available is
+		// only known at that moment. A button that is visible but does nothing when tapped is
+		// worse than no button, so ShowGameOver decides its visibility.
+		_reviveBtn = MakeMenuButton("Watch ad to revive");
+		_reviveBtn.Visible = false;
+		_reviveBtn.Pressed += OnRevivePressed;
+		vbox.AddChild(_reviveBtn);
+
 		var playAgainBtn = MakeMenuButton("Play Again");
 		playAgainBtn.Pressed += () => GetTree().ReloadCurrentScene();
 		vbox.AddChild(playAgainBtn);
 
 		var menuBtn = MakeMenuButton("Main Menu", danger: true);
-		menuBtn.Pressed += () => GetTree().ChangeSceneToFile("res://Scenes/MainMenu.tscn");
+		menuBtn.Pressed += OnMainMenuPressed;
 		vbox.AddChild(menuBtn);
 
 		_gameOverOverlay.AddChild(panel);
@@ -965,6 +982,11 @@ public partial class HUD : CanvasLayer
 		};
 		btn.AddThemeFontSizeOverride("font_size", 16);
 		if (onPressed != null) btn.Pressed += onPressed;
+		// VirtualJoystick's touch area is deliberately much larger than the circle it draws, so
+		// it now overlaps these buttons (Knife sits 16px above the move stick, Next/Prev 18px
+		// beside the aim stick). The stick checks this group and yields any touch that lands on
+		// a button, so a generous stick area never costs you the buttons.
+		btn.AddToGroup(VirtualJoystick.TouchButtonGroup);
 		parent.AddChild(btn);
 		return btn;
 	}
@@ -994,6 +1016,62 @@ public partial class HUD : CanvasLayer
 		if (_goScoreLabel != null) _goScoreLabel.Text = $"Score: {score}";
 		if (_goWaveLabel  != null) _goWaveLabel.Text  = $"Wave reached: {wave}";
 		if (_gameOverOverlay != null) _gameOverOverlay.Visible = true;
+
+		// Offer the revive only when an ad is loaded RIGHT NOW and the run has not used its one
+		// revive. Networked games are excluded on purpose: one peer watching an ad cannot
+		// unilaterally resurrect a shared session, and Player.Revive is not replicated.
+		if (_reviveBtn != null)
+			_reviveBtn.Visible = !_reviveUsed
+			                  && !NetworkManager.IsNetworked
+			                  && AdManager.Instance?.IsRewardedReady == true;
+	}
+
+	/// <summary>
+	/// Leaves the run, showing an interstitial on the way out if AdManager's caps allow it.
+	///
+	/// This button, and never "Play Again". A player tapping Play Again is mid-reflex, already
+	/// moving toward where the next tap will land; dropping a full-screen ad under that finger
+	/// produces clicks the player never intended, which AdMob classes as invalid traffic and
+	/// acts on. Leaving for the menu is a considered decision, so an ad there is merely an
+	/// interruption rather than a trap.
+	/// </summary>
+	private void OnMainMenuPressed()
+	{
+		void GoToMenu() => GetTree().ChangeSceneToFile("res://Scenes/MainMenu.tscn");
+
+		// TryShow returns false whenever no ad was actually shown — not loaded, still inside the
+		// cooldown, or one of the session's free deaths. Nothing will call back in that case, so
+		// the scene change has to happen here or the button would simply do nothing.
+		if (AdManager.Instance?.TryShowInterstitialOnDeath(GoToMenu) != true)
+			GoToMenu();
+	}
+
+	private void OnRevivePressed()
+	{
+		if (_reviveUsed || _reviveBtn == null) return;
+		// Disabled immediately, not on success: the ad takes a moment to appear and a second tap
+		// in that window would burn the revive twice.
+		_reviveBtn.Disabled = true;
+
+		bool shown = AdManager.Instance?.ShowRewarded(
+			onEarned: () =>
+			{
+				_reviveUsed = true;
+				IsGameOver  = false;
+				if (_gameOverOverlay != null) _gameOverOverlay.Visible = false;
+				ReviveCallback?.Invoke();
+			},
+			onClosed: () =>
+			{
+				// Fires whether or not the reward was earned. If it was not, the player is still
+				// looking at the game over screen and must be able to try again.
+				if (_reviveBtn != null) _reviveBtn.Disabled = false;
+				if (_reviveUsed && _reviveBtn != null) _reviveBtn.Visible = false;
+			}) ?? false;
+
+		// No ad actually opened (it expired between showing the screen and the tap), so nothing
+		// will call back. Put the button away rather than leave a dead control on screen.
+		if (!shown) { _reviveBtn.Disabled = false; _reviveBtn.Visible = false; }
 	}
 
 	// ── Signal handlers ───────────────────────────────────────────────────────

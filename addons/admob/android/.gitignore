@@ -1,0 +1,4 @@
+# /bin was ignored upstream (it holds downloaded build artefacts). Kept tracked here on
+# purpose: these .aar files are build INPUTS for a shipping app, and a clone that cannot
+# produce a signed bundle is not a usable checkout. Re-ignoring them means a fresh clone
+# silently exports without the ads native libraries.

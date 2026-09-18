@@ -1,3 +1,13 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Signing credentials. Never commit these. With Play App Signing this is only the UPLOAD key
+# (Google holds the real signing key) and a lost one can be reset from Play Console, but a
+# leaked keystore still has to be revoked, so keep it out of the repo.
+*.keystore
+*.jks
+
+# Godot 4.7 stores the keystore path, alias and password in .godot/export_credentials.cfg,
+# which is covered by the .godot/ rule above — NOT in export_presets.cfg. Filling them in
+# through the export dialog is safe.
